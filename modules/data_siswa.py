@@ -184,7 +184,6 @@ def show_daftar_siswa():
                             conn.close()
                         st.toast(f"🗑️ Siswa {selected_siswa_nama} telah dihapus.")
                         st.rerun()
-
 def show_import_excel():
     st.subheader("📥 Import Data Siswa dari File Excel")
     st.markdown("#### 1. Unduh Template")
@@ -192,36 +191,96 @@ def show_import_excel():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         template_df.to_excel(writer, index=False, sheet_name='Sheet1')
-    st.download_button(label="📥 Unduh Template Excel", data=output.getvalue(), file_name="template_siswa.xlsx")
+    st.download_button(label="📥 Unduh Template Excel",data=output.getvalue(),file_name="template_siswa.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    
     st.markdown("---")
-    st.markdown("#### 2. Unggah File dan Proses")
+    
+    st.markdown("#### 2. Unggah File Excel")
     conn = db.create_connection()
     list_kelas = db.get_semua_kelas(conn)
     conn.close()
+    
     if not list_kelas:
         st.warning("Belum ada data kelas. Silakan tambahkan data kelas terlebih dahulu.")
         return
+        
     kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas}
-    selected_kelas_nama = st.selectbox("Pilih Kelas tujuan untuk siswa yang akan di-import", options=kelas_dict.keys())
+    selected_kelas_nama = st.selectbox("Pilih Kelas untuk siswa yang akan di-import", options=kelas_dict.keys())
+    
     uploaded_file = st.file_uploader("Pilih file Excel", type=['xlsx'])
-    if uploaded_file and selected_kelas_nama:
-        if st.button("🚀 Proses Import Sekarang", type="primary"):
-            with st.spinner("Membaca file dan mengimpor data... Ini mungkin butuh beberapa saat."):
-                try:
-                    df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
-                    id_kelas_terpilih = kelas_dict[selected_kelas_nama]
-                    conn = db.create_connection()
-                    sukses_count, gagal_count = 0, 0
-                    for _, row in df_upload.iterrows():
-                        try:
-                            db.tambah_siswa(conn, row.get('nis'), row.get('nik_siswa'), row.get('nisn'), row.get('nama_lengkap'), row.get('jenis_kelamin'), row.get('no_wa_ortu'), id_kelas_terpilih)
-                            sukses_count += 1
-                        except Exception:
-                            gagal_count += 1
-                    conn.close()
-                    st.success(f"Proses import selesai! Berhasil: {sukses_count}, Gagal: {gagal_count}.")
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan: {e}")
+    
+    if uploaded_file is not None:
+        try:
+            df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
+
+            # Pemetaan Kolom
+            column_mapping = {
+                'NO INDUK': 'nis', 'Nama Siswa': 'nama_lengkap',
+                'NIK Siswa': 'nik_siswa', 'NISN': 'nisn', 'L/P': 'jenis_kelamin','No Whatsapp': 'no_wa_ortu'
+            }
+            df_upload.rename(columns=column_mapping, inplace=True)
+            
+            # FITUR BARU: Pembersihan data otomatis dari spasi ekstra
+            for col in ['nis', 'nik_siswa', 'nisn', 'nama_lengkap', 'no_wa_ortu']:
+                if col in df_upload.columns:
+                    # Menggunakan .astype(str) untuk menghindari error jika ada data non-string
+                    df_upload[col] = df_upload[col].astype(str).str.strip()
+
+            st.write("**Preview Data dari File Anda (setelah disesuaikan):**")
+            st.dataframe(df_upload.head())
+            
+            if st.button("🚀 Proses Import Sekarang"):
+                required_columns = {'nis', 'nama_lengkap'}
+                if not required_columns.issubset(df_upload.columns):
+                    st.error(f"File Excel harus memiliki kolom yang bisa dipetakan ke 'nis' dan 'nama_lengkap'.")
+                    return
+                
+                id_kelas_terpilih = kelas_dict[selected_kelas_nama]
+                conn = db.create_connection()
+                total_rows = len(df_upload)
+                progress_bar = st.progress(0, text="Memulai proses import...")
+                sukses_count, gagal_count = 0, 0
+                list_gagal = [] # FITUR BARU: Daftar untuk menyimpan detail kegagalan
+
+                for i, row in df_upload.iterrows():
+                    nis_value = row.get('nis')
+                    nama_value = row.get('nama_lengkap')
+                    
+                    # FITUR BARU: Validasi data sebelum ke database
+                    if not nis_value or not nama_value:
+                        gagal_count += 1
+                        list_gagal.append(f"Baris {i+2}: Gagal - NIS atau Nama Lengkap tidak boleh kosong.")
+                        continue # Lanjut ke baris berikutnya
+
+                    try:
+                        db.tambah_siswa(
+                            conn=conn, nis=nis_value, nik_siswa=row.get('nik_siswa'), nisn=row.get('nisn'),
+                            nama_lengkap=nama_value, jenis_kelamin=row.get('jenis_kelamin'),
+                            no_wa_ortu=row.get('no_wa_ortu'), kelas_id=id_kelas_terpilih
+                        )
+                        sukses_count += 1
+                    except Exception as e:
+                        gagal_count += 1
+                        # FITUR BARU: Pesan eror yang lebih spesifik
+                        pesan_eror = str(e)
+                        if "UNIQUE constraint failed" in pesan_eror:
+                            pesan_eror = "NIS sudah ada di database."
+                        list_gagal.append(f"Baris {i+2} (NIS: {nis_value}): Gagal - {pesan_eror}")
+                    
+                    progress_bar.progress((i + 1) / total_rows, text=f"Memproses baris {i+1}/{total_rows}")
+                
+                conn.close()
+                st.success(f"Proses import selesai! Berhasil: {sukses_count}, Gagal: {gagal_count}.")
+
+                # FITUR BARU: Tampilkan detail kegagalan jika ada
+                if list_gagal:
+                    with st.expander("Lihat Detail Kegagalan Impor"):
+                        for pesan in list_gagal:
+                            st.write(pesan)
+                            
+        except Exception as e:
+            st.error(f"Terjadi kesalahan saat membaca atau memproses file: {e}")
+
 
 def show_naik_kelas():
     st.subheader("⬆️ Posting Kenaikan Kelas")

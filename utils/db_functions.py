@@ -164,11 +164,13 @@ def hapus_kelas(conn, id_kelas):
     conn.commit()
 
 # --- Fungsi-fungsi untuk Siswa ---
-def tambah_siswa(conn, nis, nik, nisn, nama, jenis_kelamin, no_wa, id_kelas):
+def tambah_siswa(conn, nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, kelas_id):
+    """Menambahkan data siswa baru ke database."""
     sql = ''' INSERT INTO siswa(nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, id_kelas)
               VALUES(?,?,?,?,?,?,?) '''
     cursor = conn.cursor()
-    cursor.execute(sql, (nis, nik, nisn, nama, jenis_kelamin, no_wa, id_kelas))
+    # Pastikan semua variabel yang dimasukkan sudah sesuai urutan dan namanya
+    cursor.execute(sql, (nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, kelas_id))
     conn.commit()
 
 def update_siswa(conn, nis, nik, nisn, nama, jenis_kelamin, no_wa, id_kelas):

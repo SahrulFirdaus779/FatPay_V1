@@ -94,7 +94,7 @@ def show_tagihan_siswa():
         if not list_kelas or not list_pos:
             st.warning("Data Kelas atau Jenis Pembayaran belum ada.")
             return
-        kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas}
+        kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
         pos_dict = {f"{nama} ({tipe})": id_pos for id_pos, nama, tipe in list_pos}
         with st.form("form_buat_tagihan_kelas"):
             col1, col2 = st.columns(2)
@@ -119,7 +119,7 @@ def show_tagihan_siswa():
             conn = db.create_connection()
             list_kelas_filter_db = db.get_semua_kelas(conn)
             conn.close()
-        kelas_dict_filter = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas_filter_db}
+        kelas_dict_filter = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_filter_db}
         col1, col2 = st.columns([2, 3])
         selected_kelas_filter_nama = col1.selectbox("Filter Kelas", ["Semua Kelas"] + list(kelas_dict_filter.keys()), key="filter_kelas_tagihan")
         search_term = col2.text_input("Cari Siswa (Nama atau NIS)", key="search_tagihan")
@@ -129,7 +129,7 @@ def show_tagihan_siswa():
             list_siswa_db = db.get_filtered_siswa_detailed(conn, kelas_id=id_kelas_filter, search_term=search_term)
             conn.close()
         if list_siswa_db:
-            pilihan_siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, _, _, _, _ in list_siswa_db}
+            pilihan_siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, _, _, _, _, _ in list_siswa_db}
             siswa_terpilih_nama = st.selectbox("Pilih Siswa untuk melihat tagihan:", options=pilihan_siswa_dict.keys())
         else:
             st.info("Tidak ada siswa yang cocok dengan filter.")
@@ -156,7 +156,7 @@ def show_transaksi_pembayaran():
         conn = db.create_connection()
         list_kelas = db.get_semua_kelas(conn)
         conn.close()
-        kelas_dict_filter = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas}
+        kelas_dict_filter = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
         col1, col2 = st.columns([2, 3])
         selected_kelas_filter_nama = col1.selectbox("Filter Kelas", ["Semua Kelas"] + list(kelas_dict_filter.keys()), key="filter_kelas_trx")
         search_term = col2.text_input("Cari Siswa (Nama atau NIS)", key="search_trx")
@@ -168,7 +168,7 @@ def show_transaksi_pembayaran():
         if not list_siswa_db:
             st.warning("Tidak ada siswa yang cocok dengan filter Anda.")
             return
-        pilihan_siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, _, _, _, _ in list_siswa_db}
+        pilihan_siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, _, _, _, _, _ in list_siswa_db}
         siswa_terpilih_nama = st.selectbox("Pilih Siswa yang Akan Membayar:", options=pilihan_siswa_dict.keys())
 
     if siswa_terpilih_nama:

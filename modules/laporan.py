@@ -16,7 +16,7 @@ def render_filter_widgets(show_date_range=False, key_prefix="default"):
     list_kelas = db.get_semua_kelas(conn)
     conn.close()
     
-    kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas}
+    kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
     pilihan_kelas = ["Semua Kelas"] + list(kelas_dict.keys())
     
     tgl_mulai, tgl_sampai = None, None
@@ -137,7 +137,7 @@ def show_laporan_tunggakan():
             st.info("Tidak ada data tunggakan yang ditemukan untuk filter ini.")
             return
             
-        df = pd.DataFrame(data_tunggakan, columns=['NIS', 'Nama Siswa', 'Kelas', 'Item Pembayaran', 'Bulan', 'Tunggakan'])
+        df = pd.DataFrame(data_tunggakan, columns=['NIS', 'Nama Siswa', 'Kelas', 'Item Pembayaran', 'Bulan', 'Tunggakan', 'Angkatan'])
         df['Tunggakan'] = pd.to_numeric(df['Tunggakan']) # Pastikan tipe data numerik
         
         total_tunggakan_keseluruhan = 0

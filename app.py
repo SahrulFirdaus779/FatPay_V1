@@ -126,8 +126,6 @@ def show_main_dashboard():
             with st.container(border=True):
                 st.markdown(render_svg(item["image"]), unsafe_allow_html=True)
                 st.markdown(f'<h3 class="menu-title">{item["title"]}</h3>', unsafe_allow_html=True)
-                st.markdown(f'<p class="menu-desc">{item["desc"]}</p>', unsafe_allow_html=True)
-                
                 if st.button("Masuk ke Modul", key=item["key"], use_container_width=True):
                     navigate_to(item["target"])
 

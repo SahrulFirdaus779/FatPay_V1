@@ -1,28 +1,20 @@
-# utils/db_functions.py (Versi Final yang Diperbaiki)
+# utils/db_functions.py (Versi Final yang Benar)
 
-# Pastikan Anda sudah menginstal pustaka bcrypt:
-# pip install bcrypt
 import sqlite3
-import bcrypt
+import hashlib
 from datetime import datetime
 
-# --- Fungsi Koneksi dan Setup Database ---
-
 def create_connection():
-    """Membuat koneksi ke database dan mengaktifkan foreign key constraints."""
     conn = None
     try:
         conn = sqlite3.connect("fatpay.db")
-        conn.execute("PRAGMA foreign_keys = ON;") # Penting untuk integritas data
     except sqlite3.Error as e:
-        print(f"Error connecting to database: {e}")
+        print(e)
     return conn
 
 def create_tables(conn):
-    """Membuat semua tabel yang diperlukan jika belum ada."""
     try:
         cursor = conn.cursor()
-        # Tabel users dengan password yang di-hash
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,16 +23,13 @@ def create_tables(conn):
                 role TEXT NOT NULL
             );
         """)
-        # Tabel kelas dengan kolom angkatan
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS kelas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                angkatan TEXT NOT NULL,
                 nama_kelas TEXT NOT NULL,
                 tahun_ajaran TEXT NOT NULL
             );
         """)
-        # Tabel siswa
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS siswa (
                 nis TEXT PRIMARY KEY,
@@ -51,10 +40,9 @@ def create_tables(conn):
                 no_wa_ortu TEXT,
                 id_kelas INTEGER,
                 status TEXT NOT NULL DEFAULT 'Aktif',
-                FOREIGN KEY (id_kelas) REFERENCES kelas (id) ON DELETE SET NULL
+                FOREIGN KEY (id_kelas) REFERENCES kelas (id)
             );
         """)
-        # Tabel pos_pembayaran
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pos_pembayaran (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +50,6 @@ def create_tables(conn):
                 tipe TEXT NOT NULL
             );
         """)
-        # Tabel tagihan
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tagihan (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,11 +59,10 @@ def create_tables(conn):
                 nominal_tagihan REAL NOT NULL,
                 sisa_tagihan REAL NOT NULL,
                 status TEXT NOT NULL DEFAULT 'Belum Lunas',
-                FOREIGN KEY (nis_siswa) REFERENCES siswa (nis) ON DELETE CASCADE,
-                FOREIGN KEY (id_pos) REFERENCES pos_pembayaran (id) ON DELETE CASCADE
+                FOREIGN KEY (nis_siswa) REFERENCES siswa (nis),
+                FOREIGN KEY (id_pos) REFERENCES pos_pembayaran (id)
             );
         """)
-        # Tabel transaksi
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS transaksi (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,40 +73,31 @@ def create_tables(conn):
                 FOREIGN KEY (nis_siswa) REFERENCES siswa (nis)
             );
         """)
-        # Tabel detail_transaksi
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS detail_transaksi (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 id_transaksi INTEGER NOT NULL,
                 id_tagihan INTEGER NOT NULL,
                 jumlah_bayar REAL NOT NULL,
-                FOREIGN KEY (id_transaksi) REFERENCES transaksi (id) ON DELETE CASCADE,
+                FOREIGN KEY (id_transaksi) REFERENCES transaksi (id),
                 FOREIGN KEY (id_tagihan) REFERENCES tagihan (id)
             );
         """)
         print("Pemeriksaan dan pembuatan tabel berhasil.")
     except sqlite3.Error as e:
-        print(f"Error creating tables: {e}")
+        print(e)
 
 def setup_database():
-    """Menjalankan setup awal database."""
     conn = create_connection()
     if conn is not None:
         create_tables(conn)
         conn.close()
 
-# --- Fungsi-fungsi untuk User (dengan bcrypt) ---
-
+# --- Fungsi-fungsi untuk User ---
 def hash_password(password):
-    """Menghasilkan hash dari password menggunakan bcrypt."""
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-
-def check_password(hashed_password, user_password):
-    """Memverifikasi password dengan hash-nya."""
-    return bcrypt.checkpw(user_password.encode('utf-8'), hashed_password)
+    return hashlib.sha256(password.encode()).hexdigest()
 
 def tambah_user(conn, username, password, role):
-    """Menambah user baru dengan password yang di-hash."""
     hashed_pw = hash_password(password)
     sql = ''' INSERT INTO users(username,password,role) VALUES(?,?,?) '''
     cursor = conn.cursor()
@@ -129,16 +106,14 @@ def tambah_user(conn, username, password, role):
         conn.commit()
         return True
     except sqlite3.IntegrityError:
-        return False # Username sudah ada
+        return False
 
 def check_login(conn, username, password):
-    """Memeriksa kredensial login user."""
+    hashed_pw = hash_password(password)
     cursor = conn.cursor()
-    cursor.execute("SELECT password, role FROM users WHERE username = ?", (username,))
+    cursor.execute("SELECT role FROM users WHERE username = ? AND password = ?", (username, hashed_pw))
     result = cursor.fetchone()
-    if result and check_password(result[0], password):
-        return result[1] # Return role
-    return None
+    return result[0] if result else None
 
 def get_all_users(conn):
     cursor = conn.cursor()
@@ -146,6 +121,7 @@ def get_all_users(conn):
     return cursor.fetchall()
 
 def update_user_password(conn, username, new_password):
+    """Mengubah password seorang user oleh admin."""
     hashed_pw = hash_password(new_password)
     sql = ''' UPDATE users SET password = ? WHERE username = ? '''
     cursor = conn.cursor()
@@ -153,38 +129,32 @@ def update_user_password(conn, username, new_password):
     conn.commit()
 
 def hapus_user(conn, username):
-    if username.lower() == 'admin':
-        return False # Admin tidak boleh dihapus
+    """Menghapus seorang user."""
+    # Pastikan user 'admin' tidak bisa dihapus
+    if username == 'admin':
+        return False
     sql = 'DELETE FROM users WHERE username = ?'
     cursor = conn.cursor()
     cursor.execute(sql, (username,))
     conn.commit()
-    return cursor.rowcount > 0
+    return True
 
-# --- Fungsi-fungsi untuk Kelas (dengan Angkatan) ---
-
-def tambah_kelas(conn, angkatan, nama_kelas, tahun_ajaran):
-    sql = ''' INSERT INTO kelas(angkatan, nama_kelas, tahun_ajaran) VALUES(?,?,?) '''
+# --- Fungsi-fungsi untuk Kelas ---
+def tambah_kelas(conn, nama_kelas, tahun_ajaran):
+    sql = ''' INSERT INTO kelas(nama_kelas,tahun_ajaran) VALUES(?,?) '''
     cursor = conn.cursor()
-    cursor.execute(sql, (angkatan, nama_kelas, tahun_ajaran))
+    cursor.execute(sql, (nama_kelas, tahun_ajaran))
     conn.commit()
-    return cursor.lastrowid
 
 def get_semua_kelas(conn):
     cursor = conn.cursor()
-    cursor.execute("SELECT id, angkatan, nama_kelas, tahun_ajaran FROM kelas ORDER BY angkatan DESC, nama_kelas ASC")
+    cursor.execute("SELECT id, nama_kelas, tahun_ajaran FROM kelas")
     return cursor.fetchall()
-    
-def get_semua_angkatan(conn):
-    """Mengambil semua angkatan unik dari tabel kelas."""
-    cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT angkatan FROM kelas ORDER BY angkatan DESC")
-    return [row[0] for row in cursor.fetchall()]
 
-def update_kelas(conn, id_kelas, angkatan_baru, nama_baru, tahun_ajaran_baru):
-    sql = ''' UPDATE kelas SET angkatan = ?, nama_kelas = ?, tahun_ajaran = ? WHERE id = ? '''
+def update_kelas(conn, id_kelas, nama_baru, tahun_ajaran_baru):
+    sql = ''' UPDATE kelas SET nama_kelas = ?, tahun_ajaran = ? WHERE id = ? '''
     cursor = conn.cursor()
-    cursor.execute(sql, (angkatan_baru, nama_baru, tahun_ajaran_baru, id_kelas))
+    cursor.execute(sql, (nama_baru, tahun_ajaran_baru, id_kelas))
     conn.commit()
 
 def hapus_kelas(conn, id_kelas):
@@ -194,12 +164,13 @@ def hapus_kelas(conn, id_kelas):
     conn.commit()
 
 # --- Fungsi-fungsi untuk Siswa ---
-
-def tambah_siswa(conn, nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, id_kelas):
+def tambah_siswa(conn, nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, kelas_id):
+    """Menambahkan data siswa baru ke database."""
     sql = ''' INSERT INTO siswa(nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, id_kelas)
               VALUES(?,?,?,?,?,?,?) '''
     cursor = conn.cursor()
-    cursor.execute(sql, (nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, id_kelas))
+    # Pastikan semua variabel yang dimasukkan sudah sesuai urutan dan namanya
+    cursor.execute(sql, (nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, kelas_id))
     conn.commit()
 
 def update_siswa(conn, nis, nik, nisn, nama, jenis_kelamin, no_wa, id_kelas):
@@ -216,23 +187,26 @@ def hapus_siswa(conn, nis):
     cursor.execute(sql, (nis,))
     conn.commit()
 
-def get_filtered_siswa_detailed(conn, angkatan=None, kelas_id=None, search_term=None):
-    """Mengambil data siswa dengan filter berdasarkan angkatan, kelas, dan/atau nama/NIS."""
+def get_filtered_siswa_detailed(conn, kelas_id=None, search_term=None):
+    """
+    Mengambil data siswa dengan filter berdasarkan kelas dan/atau nama/NIS.
+    """
     cursor = conn.cursor()
+    
+    # Query dasar
     query = """
-        SELECT s.nis, s.nik_siswa, s.nisn, s.nama_lengkap, s.jenis_kelamin, s.no_wa_ortu, k.nama_kelas, s.status, k.angkatan
+        SELECT s.nis, s.nik_siswa, s.nisn, s.nama_lengkap, s.jenis_kelamin, s.no_wa_ortu, k.nama_kelas, s.status
         FROM siswa s
         LEFT JOIN kelas k ON s.id_kelas = k.id
     """
+    
     conditions = []
     params = []
     
-    if angkatan:
-        conditions.append("k.angkatan = ?")
-        params.append(angkatan)
     if kelas_id:
         conditions.append("s.id_kelas = ?")
         params.append(kelas_id)
+        
     if search_term:
         conditions.append("(s.nama_lengkap LIKE ? OR s.nis LIKE ?)")
         params.extend([f"%{search_term}%", f"%{search_term}%"])
@@ -258,19 +232,19 @@ def get_siswa_by_kelas(conn, id_kelas):
     cursor.execute("SELECT nis, nama_lengkap FROM siswa WHERE id_kelas = ?", (id_kelas,))
     return cursor.fetchall()
 
-def get_single_siswa_detailed(conn, nis):
+def update_kelas_siswa(conn, nis, id_kelas_baru):
+    sql = ''' UPDATE siswa SET id_kelas = ? WHERE nis = ? '''
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT s.nis, s.nik_siswa, s.nisn, s.nama_lengkap, s.jenis_kelamin, s.no_wa_ortu, k.nama_kelas, s.status, k.angkatan
-        FROM siswa s
-        LEFT JOIN kelas k ON s.id_kelas = k.id
-        WHERE s.nis = ?
-    """, (nis,))
-    return cursor.fetchone()
+    cursor.execute(sql, (id_kelas_baru, nis))
+    conn.commit()
 
-# --- Fungsi-fungsi untuk POS Pembayaran & Tagihan ---
-# (Tidak ada perubahan signifikan di sini, fungsi tetap sama)
+def update_status_siswa(conn, nis, status_baru):
+    sql = ''' UPDATE siswa SET status = ? WHERE nis = ? '''
+    cursor = conn.cursor()
+    cursor.execute(sql, (status_baru, nis))
+    conn.commit()
 
+# --- Fungsi-fungsi untuk POS Pembayaran ---
 def tambah_pos_pembayaran(conn, nama_pos, tipe):
     sql = ''' INSERT INTO pos_pembayaran(nama_pos, tipe) VALUES(?,?) '''
     cursor = conn.cursor()
@@ -294,6 +268,7 @@ def hapus_pos_pembayaran(conn, id_pos):
     cursor.execute(sql, (id_pos,))
     conn.commit()
 
+# --- Fungsi-fungsi untuk Tagihan ---
 def buat_tagihan_satu_kelas(conn, id_kelas, id_pos, nominal, bulan=None):
     cursor = conn.cursor()
     cursor.execute("SELECT nis FROM siswa WHERE id_kelas = ? AND status = 'Aktif'", (id_kelas,))
@@ -315,46 +290,34 @@ def get_tagihan_by_siswa(conn, nis):
     """, (nis,))
     return cursor.fetchall()
 
-# --- Fungsi-fungsi untuk Transaksi (dengan perbaikan) ---
-
-def proses_pembayaran(conn, nis_siswa, petugas, list_pembayaran):
-    """Memproses pembayaran dalam satu transaksi atomik (semua berhasil atau semua gagal)."""
+def get_tagihan_by_pos(conn, id_pos):
     cursor = conn.cursor()
+    cursor.execute("""
+        SELECT s.nama_lengkap, s.no_wa_ortu, p.nama_pos, t.sisa_tagihan
+        FROM tagihan t
+        JOIN siswa s ON t.nis_siswa = s.nis
+        JOIN pos_pembayaran p ON t.id_pos = p.id
+        WHERE t.id_pos = ? AND t.status = 'Belum Lunas' AND s.no_wa_ortu IS NOT NULL
+    """, (id_pos,))
+    return cursor.fetchall()
+
+# --- Fungsi-fungsi untuk Transaksi ---
+def proses_pembayaran(conn, nis_siswa, petugas, list_pembayaran):
     tanggal_transaksi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     total_bayar = sum(item[1] for item in list_pembayaran)
-    
-    try:
-        # Mulai transaksi
-        cursor.execute("BEGIN TRANSACTION")
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO transaksi (tanggal, nis_siswa, total_bayar, petugas) VALUES (?, ?, ?, ?)", (tanggal_transaksi, nis_siswa, total_bayar, petugas))
+    id_transaksi_baru = cursor.lastrowid
+    for id_tagihan, jumlah_bayar in list_pembayaran:
+        cursor.execute("INSERT INTO detail_transaksi (id_transaksi, id_tagihan, jumlah_bayar) VALUES (?, ?, ?)", (id_transaksi_baru, id_tagihan, jumlah_bayar))
+        cursor.execute("UPDATE tagihan SET sisa_tagihan = sisa_tagihan - ? WHERE id = ?", (jumlah_bayar, id_tagihan))
+        cursor.execute("SELECT sisa_tagihan FROM tagihan WHERE id = ?", (id_tagihan,))
+        sisa_tagihan_terbaru = cursor.fetchone()[0]
+        if sisa_tagihan_terbaru <= 0:
+            cursor.execute("UPDATE tagihan SET status = 'Lunas' WHERE id = ?", (id_tagihan,))
+    conn.commit()
+    return id_transaksi_baru
 
-        # 1. Masukkan ke tabel transaksi
-        cursor.execute("INSERT INTO transaksi (tanggal, nis_siswa, total_bayar, petugas) VALUES (?, ?, ?, ?)",
-                       (tanggal_transaksi, nis_siswa, total_bayar, petugas))
-        id_transaksi_baru = cursor.lastrowid
-
-        # 2. Loop untuk detail transaksi dan update tagihan
-        for id_tagihan, jumlah_bayar in list_pembayaran:
-            cursor.execute("INSERT INTO detail_transaksi (id_transaksi, id_tagihan, jumlah_bayar) VALUES (?, ?, ?)",
-                           (id_transaksi_baru, id_tagihan, jumlah_bayar))
-            
-            cursor.execute("UPDATE tagihan SET sisa_tagihan = sisa_tagihan - ? WHERE id = ?",
-                           (jumlah_bayar, id_tagihan))
-            
-            cursor.execute("SELECT sisa_tagihan FROM tagihan WHERE id = ?", (id_tagihan,))
-            sisa_tagihan_terbaru = cursor.fetchone()[0]
-            
-            if sisa_tagihan_terbaru <= 0:
-                cursor.execute("UPDATE tagihan SET status = 'Lunas', sisa_tagihan = 0 WHERE id = ?", (id_tagihan,))
-        
-        # Jika semua berhasil, commit transaksi
-        conn.commit()
-        return id_transaksi_baru
-
-    except sqlite3.Error as e:
-        # Jika ada error, batalkan semua perubahan
-        print(f"Transaksi gagal: {e}")
-        conn.rollback()
-        return None
 def get_semua_transaksi(conn, search_term=None):
     """Mengambil semua data transaksi, dengan opsi pencarian."""
     cursor = conn.cursor()
@@ -386,10 +349,8 @@ def get_detail_by_transaksi(conn, id_transaksi):
     """, (id_transaksi,))
     return cursor.fetchall()
 
-# --- Fungsi-fungsi untuk Laporan (dengan filter Angkatan) ---
-
-def get_laporan_kas_umum(conn, tanggal_mulai, tanggal_sampai, angkatan=None, id_pos=None, kelas_id=None, search_term=None):
-    """Mengambil data transaksi dengan filter lengkap untuk laporan kas umum."""
+def get_laporan_kas_umum(conn, tanggal_mulai, tanggal_sampai, id_pos=None, kelas_id=None, search_term=None):
+    """Mengambil data transaksi dengan filter lengkap."""
     cursor = conn.cursor()
     
     params = [tanggal_mulai, tanggal_sampai]
@@ -403,7 +364,6 @@ def get_laporan_kas_umum(conn, tanggal_mulai, tanggal_sampai, angkatan=None, id_
         t.total_bayar AS pemasukan
     FROM transaksi t
     JOIN siswa s ON t.nis_siswa = s.nis
-    JOIN kelas k ON s.id_kelas = k.id
     JOIN (
         SELECT dt.id_transaksi, MIN(tgh.id_pos) as id_pos
         FROM detail_transaksi dt
@@ -414,14 +374,11 @@ def get_laporan_kas_umum(conn, tanggal_mulai, tanggal_sampai, angkatan=None, id_
     WHERE DATE(t.tanggal) BETWEEN ? AND ?
     """
     
-    if angkatan:
-        query += " AND k.angkatan = ?"
-        params.append(angkatan)
-    
     if id_pos:
         query += " AND p.id = ?"
         params.append(id_pos)
     
+    # (BARU) Menambahkan filter kelas dan nama/nis
     if kelas_id:
         query += " AND s.id_kelas = ?"
         params.append(kelas_id)
@@ -435,76 +392,106 @@ def get_laporan_kas_umum(conn, tanggal_mulai, tanggal_sampai, angkatan=None, id_
     cursor.execute(query, tuple(params))
     return cursor.fetchall()
 
-
+# TAMBAHKAN fungsi baru ini di akhir file:
 def get_rekap_saldo_per_pos(conn):
     """Menghitung total pemasukan untuk setiap jenis POS pembayaran."""
     cursor = conn.cursor()
     query = """
-        SELECT
-            p.nama_pos,
-            SUM(dt.jumlah_bayar) as total_diterima
-        FROM detail_transaksi dt
-        JOIN tagihan t ON dt.id_tagihan = t.id
-        JOIN pos_pembayaran p ON t.id_pos = p.id
-        GROUP BY p.nama_pos
-        ORDER BY p.id
+    SELECT
+        p.nama_pos,
+        SUM(dt.jumlah_bayar) as total_diterima
+    FROM detail_transaksi dt
+    JOIN tagihan t ON dt.id_tagihan = t.id
+    JOIN pos_pembayaran p ON t.id_pos = p.id
+    GROUP BY p.nama_pos
+    ORDER BY p.id
     """
     cursor.execute(query)
     return cursor.fetchall()
 
-def get_semua_tunggakan(conn, angkatan=None, kelas_id=None, search_term=None):
-    """Mengambil semua data tunggakan dengan filter lengkap."""
+def get_laporan_harian(conn, tanggal):
+    """Mengambil semua transaksi pembayaran pada tanggal tertentu."""
     cursor = conn.cursor()
     query = """
-        SELECT s.nis, s.nama_lengkap, k.nama_kelas, p.nama_pos, t.bulan, t.sisa_tagihan, k.angkatan
+    SELECT
+        t.id,
+        s.nis,
+        s.nama_lengkap,
+        p.nama_pos,
+        dt.jumlah_bayar
+    FROM transaksi t
+    JOIN siswa s ON t.nis_siswa = s.nis
+    JOIN detail_transaksi dt ON t.id = dt.id_transaksi
+    JOIN tagihan tag ON dt.id_tagihan = tag.id
+    JOIN pos_pembayaran p ON tag.id_pos = p.id
+    WHERE DATE(t.tanggal) = ?
+    ORDER BY t.id
+    """
+    cursor.execute(query, (tanggal,))
+    return cursor.fetchall()
+
+def get_semua_tunggakan(conn, kelas_id=None, search_term=None):
+    """Mengambil semua data tunggakan dengan filter kelas dan nama/nis."""
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT
+            s.nis,
+            s.nama_lengkap,
+            k.nama_kelas,
+            p.nama_pos,
+            t.bulan,
+            t.sisa_tagihan
         FROM tagihan t
         JOIN siswa s ON t.nis_siswa = s.nis
         JOIN kelas k ON s.id_kelas = k.id
         JOIN pos_pembayaran p ON t.id_pos = p.id
         WHERE t.status = 'Belum Lunas' AND t.sisa_tagihan > 0
     """
-    params = []
     
-    if angkatan:
-        query += " AND k.angkatan = ?"
-        params.append(angkatan)
+    params = []
     if kelas_id:
         query += " AND s.id_kelas = ?"
         params.append(kelas_id)
+        
+    # (BARU) Menambahkan filter pencarian nama/nis
     if search_term:
         query += " AND (s.nama_lengkap LIKE ? OR s.nis LIKE ?)"
         params.extend([f"%{search_term}%", f"%{search_term}%"])
         
-    query += " ORDER BY k.angkatan, k.nama_kelas, s.nama_lengkap"
+    query += " ORDER BY k.nama_kelas, s.nama_lengkap"
+    
     cursor.execute(query, tuple(params))
     return cursor.fetchall()
 
-def get_rekap_pembayaran(conn, tanggal_mulai, tanggal_sampai, angkatan=None, kelas_id=None, id_pos=None):
+def get_rekap_pembayaran(conn, tanggal_mulai, tanggal_sampai, kelas_id=None, search_term=None):
     """Menghitung rekap total pemasukan per POS dengan filter lengkap."""
     cursor = conn.cursor()
+    
     params = [tanggal_mulai, tanggal_sampai]
+    
     query = """
-        SELECT p.nama_pos, SUM(dt.jumlah_bayar) as total_diterima
-        FROM detail_transaksi dt
-        JOIN transaksi t ON dt.id_transaksi = t.id
-        JOIN siswa s ON t.nis_siswa = s.nis
-        JOIN kelas k ON s.id_kelas = k.id
-        JOIN tagihan tag ON dt.id_tagihan = tag.id
-        JOIN pos_pembayaran p ON tag.id_pos = p.id
-        WHERE DATE(t.tanggal) BETWEEN ? AND ?
+    SELECT
+        p.nama_pos,
+        SUM(dt.jumlah_bayar) as total_diterima
+    FROM detail_transaksi dt
+    JOIN transaksi t ON dt.id_transaksi = t.id
+    JOIN siswa s ON t.nis_siswa = s.nis
+    JOIN tagihan tag ON dt.id_tagihan = tag.id
+    JOIN pos_pembayaran p ON tag.id_pos = p.id
+    WHERE DATE(t.tanggal) BETWEEN ? AND ?
     """
     
-    if angkatan:
-        query += " AND k.angkatan = ?"
-        params.append(angkatan)
     if kelas_id:
         query += " AND s.id_kelas = ?"
         params.append(kelas_id)
-    if id_pos:
-        query += " AND p.id = ?"
-        params.append(id_pos)
+        
+    if search_term:
+        query += " AND (s.nama_lengkap LIKE ? OR s.nis LIKE ?)"
+        params.extend([f"%{search_term}%", f"%{search_term}%"])
         
     query += " GROUP BY p.nama_pos ORDER BY p.id"
+    
     cursor.execute(query, tuple(params))
     return cursor.fetchall()
 
@@ -512,18 +499,21 @@ def get_rekap_pembayaran(conn, tanggal_mulai, tanggal_sampai, angkatan=None, kel
 # --- Fungsi-fungsi untuk Dasbor ---
 
 def get_total_siswa_aktif(conn):
+    """Menghitung jumlah siswa yang statusnya 'Aktif'."""
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(nis) FROM siswa WHERE status = 'Aktif'")
     result = cursor.fetchone()
     return result[0] if result else 0
 
 def get_total_tunggakan(conn):
+    """Menghitung total sisa tagihan dari semua siswa."""
     cursor = conn.cursor()
     cursor.execute("SELECT SUM(sisa_tagihan) FROM tagihan WHERE status = 'Belum Lunas'")
     result = cursor.fetchone()
     return result[0] if result and result[0] is not None else 0
 
 def get_pemasukan_hari_ini(conn):
+    """Menghitung total pembayaran yang diterima hari ini."""
     today = datetime.now().strftime("%Y-%m-%d")
     cursor = conn.cursor()
     cursor.execute("SELECT SUM(total_bayar) FROM transaksi WHERE DATE(tanggal) = ?", (today,))

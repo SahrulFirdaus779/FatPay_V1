@@ -509,6 +509,67 @@ def get_rekap_pembayaran(conn, tanggal_mulai, tanggal_sampai, angkatan=None, kel
     return cursor.fetchall()
 
 
+def get_transaksi_by_id(conn, id_transaksi):
+    """Mengambil data lengkap satu transaksi untuk keperluan cetak bukti."""
+    cursor = conn.cursor()
+    query = """
+        SELECT 
+            t.id, 
+            t.tanggal, 
+            t.nis_siswa, 
+            s.nama_lengkap, 
+            k.nama_kelas, 
+            t.total_bayar, 
+            t.petugas
+        FROM transaksi t
+        JOIN siswa s ON t.nis_siswa = s.nis
+        LEFT JOIN kelas k ON s.id_kelas = k.id
+        WHERE t.id = ?
+    """
+    cursor.execute(query, (id_transaksi,))
+    return cursor.fetchone()
+
+def get_filtered_transaksi(conn, search_term=None, kelas_id=None, angkatan=None):
+    """
+    Mengambil data transaksi dengan filter berdasarkan nama/NIS, kelas, dan angkatan.
+    """
+    # Query ini telah diperbaiki agar sesuai dengan skema tabel Anda
+    query = """
+        SELECT DISTINCT 
+            t.id, 
+            t.tanggal, 
+            s.nis, 
+            s.nama_lengkap, 
+            t.total_bayar, 
+            k.nama_kelas, 
+            k.angkatan
+        FROM transaksi t
+        JOIN siswa s ON t.nis_siswa = s.nis
+        LEFT JOIN kelas k ON s.id_kelas = k.id
+        WHERE 1=1
+    """
+    params = []
+
+    if search_term:
+        query += " AND (s.nama_lengkap LIKE ? OR s.nis LIKE ?)"
+        params.extend([f"%{search_term}%", f"%{search_term}%"])
+
+    if kelas_id:
+        query += " AND k.id = ?"
+        params.append(kelas_id)
+
+    if angkatan:
+        query += " AND k.angkatan = ?"
+        params.append(angkatan)
+
+    # Nama kolom di ORDER BY juga diperbaiki
+    query += " ORDER BY t.tanggal DESC"
+
+    cur = conn.cursor()
+    cur.execute(query, tuple(params))
+    return cur.fetchall()
+
+
 # --- Fungsi-fungsi untuk Dasbor ---
 
 def get_total_siswa_aktif(conn):

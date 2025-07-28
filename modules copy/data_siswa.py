@@ -7,6 +7,33 @@ import barcode
 from barcode.writer import ImageWriter
 import base64
 
+# --- FUNGSI CACHING UNTUK PERFORMA ---
+# Tambahkan fungsi ini di bawah baris import
+def load_svg(filepath):
+    """Membaca dan mengembalikan konten dari file SVG."""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        # Mengembalikan ikon default jika file tidak ditemukan
+        return """<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-question-circle" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-1.057 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"/></svg>"""
+    
+@st.cache_data(ttl=600)
+def get_semua_kelas_cached():
+    """Mengambil daftar kelas dari DB dan menyimpannya di cache."""
+    conn = db.create_connection()
+    data = db.get_semua_kelas(conn)
+    conn.close()
+    return data
+
+@st.cache_data(ttl=600)
+def get_semua_angkatan_cached():
+    """Mengambil daftar angkatan dari DB dan menyimpannya di cache."""
+    conn = db.create_connection()
+    data = db.get_semua_angkatan(conn)
+    conn.close()
+    return data
+
 # --- FUNGSI BANTUAN ---
 def format_status_badge(status):
     """Mengubah teks status menjadi badge HTML berwarna."""
@@ -18,92 +45,108 @@ def format_status_badge(status):
     badge_style = f"background-color: {bg_color}; color: #333; padding: 5px 12px; border-radius: 15px; text-align: center; font-weight: 600; font-size: 12px; display: inline-block;"
     return f'<div style="{badge_style}">{status}</div>'
 
-# --- FUNGSI SUB-HALAMAN (LENGKAP) ---
+# --- FUNGSI SUB-HALAMAN (LENGKAP DAN DIPERBAIKI) ---
 
 def show_master_kelas():
     st.subheader("Master Data Kelas")
     with st.form("form_tambah_kelas", clear_on_submit=True):
-        nama_kelas = st.text_input("Nama Kelas (Contoh: X-A, XI-IPA-1)")
-        tahun_ajaran = st.text_input("Tahun Ajaran (Contoh: 2024/2025)")
+        st.markdown("<h6>Tambah Kelas Baru</h6>", unsafe_allow_html=True)
+        angkatan = st.text_input("Angkatan*", help="Contoh: 2024, 2025")
+        nama_kelas = st.text_input("Nama Kelas*", help="Contoh: X-A, XI-IPA-1")
+        tahun_ajaran = st.text_input("Tahun Ajaran*", help="Contoh: 2024/2025")
+        
         if st.form_submit_button("➕ Tambah Kelas"):
-            if nama_kelas and tahun_ajaran:
+            if angkatan and nama_kelas and tahun_ajaran:
                 with st.spinner("Menyimpan..."):
                     conn = db.create_connection()
-                    db.tambah_kelas(conn, nama_kelas, tahun_ajaran)
+                    db.tambah_kelas(conn, angkatan, nama_kelas, tahun_ajaran)
                     conn.close()
+                st.cache_data.clear()
                 st.toast(f"✅ Kelas '{nama_kelas}' berhasil ditambahkan.")
                 st.rerun()
             else:
-                st.warning("Nama Kelas dan Tahun Ajaran tidak boleh kosong.")
+                st.warning("Input dengan tanda (*) tidak boleh kosong.")
+                
     st.markdown("---")
+    
     with st.spinner("Memuat data kelas..."):
-        conn = db.create_connection()
-        list_kelas = db.get_semua_kelas(conn)
-        conn.close()
+        list_kelas = get_semua_kelas_cached()
+
     if list_kelas:
-        df_kelas = pd.DataFrame(list_kelas, columns=['ID', 'Nama Kelas', 'Tahun Ajaran'])
+        df_kelas = pd.DataFrame(list_kelas, columns=['ID', 'Angkatan', 'Nama Kelas', 'Tahun Ajaran'])
         st.dataframe(df_kelas, use_container_width=True, hide_index=True)
+        
         with st.expander("✏️ Edit atau Hapus Data Kelas"):
-            kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas}
+            kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
             selected_kelas_nama = st.selectbox("Pilih kelas untuk diubah/dihapus", options=kelas_dict.keys())
             id_kelas_terpilih = kelas_dict.get(selected_kelas_nama)
+            
             if id_kelas_terpilih:
-                selected_details = next(item for item in list_kelas if item[0] == id_kelas_terpilih)
-                with st.form(f"form_edit_kelas_{id_kelas_terpilih}"):
-                    edit_nama = st.text_input("Nama Kelas Baru", value=selected_details[1])
-                    edit_tahun = st.text_input("Tahun Ajaran Baru", value=selected_details[2])
-                    if st.form_submit_button("Simpan Perubahan"):
-                        with st.spinner("Memperbarui data..."):
-                            conn = db.create_connection()
-                            db.update_kelas(conn, id_kelas_terpilih, edit_nama, edit_tahun)
-                            conn.close()
-                        st.toast("✅ Data kelas berhasil diperbarui!")
-                        st.rerun()
-                if st.button(f"❌ Hapus Kelas: {selected_kelas_nama}", type="primary"):
-                    with st.spinner("Memeriksa data..."):
-                        conn = db.create_connection()
-                        if db.get_siswa_by_kelas(conn, id_kelas_terpilih):
-                            st.error("Tidak bisa menghapus kelas karena masih ada siswa di dalamnya.")
-                        else:
-                            db.hapus_kelas(conn, id_kelas_terpilih)
-                            st.toast(f"🗑️ Kelas {selected_kelas_nama} telah dihapus.")
+                selected_details = next((item for item in list_kelas if item[0] == id_kelas_terpilih), None)
+                if selected_details:
+                    with st.form(f"form_edit_kelas_{id_kelas_terpilih}"):
+                        edit_angkatan = st.text_input("Angkatan Baru", value=selected_details[1])
+                        edit_nama = st.text_input("Nama Kelas Baru", value=selected_details[2])
+                        edit_tahun = st.text_input("Tahun Ajaran Baru", value=selected_details[3])
+                        
+                        if st.form_submit_button("Simpan Perubahan"):
+                            with st.spinner("Memperbarui data..."):
+                                conn = db.create_connection()
+                                db.update_kelas(conn, id_kelas_terpilih, edit_angkatan, edit_nama, edit_tahun)
+                                conn.close()
+                            st.cache_data.clear()
+                            st.toast("✅ Data kelas berhasil diperbarui!")
                             st.rerun()
-                        conn.close()
+                            
+                    if st.button(f"❌ Hapus Kelas: {selected_kelas_nama}", type="primary"):
+                        with st.spinner("Menghapus..."):
+                            conn = db.create_connection()
+                            try:
+                               if db.get_siswa_by_kelas(conn, id_kelas_terpilih):
+                                   st.error("Tidak bisa menghapus kelas karena masih ada siswa di dalamnya.")
+                               else:
+                                   db.hapus_kelas(conn, id_kelas_terpilih)
+                                   st.cache_data.clear()
+                                   st.toast(f"🗑️ Kelas {selected_kelas_nama} telah dihapus.")
+                                   st.rerun()
+                            finally:
+                                conn.close()
 
 def show_daftar_siswa():
     st.subheader("Data Induk Siswa")
     
-    conn = db.create_connection()
-    list_kelas = db.get_semua_kelas(conn)
-    conn.close()
-    kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas}
+    list_angkatan = ["Semua Angkatan"] + get_semua_angkatan_cached()
+    list_kelas = get_semua_kelas_cached()
+    kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
     
     with st.container(border=True):
-        col1, col2 = st.columns([2, 3])
-        with col1:
+        c1, c2, c3 = st.columns([1, 2, 2])
+        with c1:
+            selected_angkatan = st.selectbox("Filter Angkatan", options=list_angkatan)
+        with c2:
             pilihan_kelas_filter = ["Semua Kelas"] + list(kelas_dict.keys())
             selected_kelas_filter_nama = st.selectbox("Filter per Kelas", options=pilihan_kelas_filter)
-        with col2:
-            search_term = st.text_input("Cari Nama atau NIS Siswa", placeholder="Ketik di sini untuk mencari...")
+        with c3:
+            search_term = st.text_input("Cari Nama atau NIS Siswa", placeholder="Ketik untuk mencari...")
 
-    id_kelas_filter = kelas_dict.get(selected_kelas_filter_nama)
-
+    id_kelas_filter = None if selected_kelas_filter_nama == "Semua Kelas" else kelas_dict.get(selected_kelas_filter_nama)
+    angkatan_filter = None if selected_angkatan == "Semua Angkatan" else selected_angkatan
+    
     with st.spinner("Memuat data siswa..."):
         conn = db.create_connection()
-        list_siswa = db.get_filtered_siswa_detailed(conn, kelas_id=id_kelas_filter, search_term=search_term)
+        list_siswa = db.get_filtered_siswa_detailed(conn, angkatan=angkatan_filter, kelas_id=id_kelas_filter, search_term=search_term)
         conn.close()
     
     st.markdown("---")
-    st.write(f"**Menampilkan data siswa:**")
+    st.write(f"**Menampilkan {len(list_siswa)} data siswa:**")
     
     if list_siswa:
-        df_siswa = pd.DataFrame(list_siswa, columns=['NIS', 'NIK Siswa', 'NISN', 'Nama Lengkap', 'L/P', 'No. WA Ortu', 'Kelas', 'Status']).head(10)
+        df_siswa = pd.DataFrame(list_siswa, columns=['NIS', 'NIK Siswa', 'NISN', 'Nama Lengkap', 'L/P', 'No. WA Ortu', 'Kelas', 'Status', 'Angkatan'])
         df_siswa['Status'] = df_siswa['Status'].apply(format_status_badge)
         st.markdown(df_siswa.to_html(escape=False, index=False), unsafe_allow_html=True)
     else:
         st.info("Tidak ada data siswa yang cocok dengan filter Anda.")
 
-    # --- CRUD: CREATE (Tambah Siswa) ---
     with st.expander("➕ Tambah Siswa Baru"):
         with st.form("form_tambah_siswa", clear_on_submit=True):
             st.markdown("<h6>Informasi Pribadi Siswa</h6>", unsafe_allow_html=True)
@@ -118,8 +161,7 @@ def show_daftar_siswa():
             selected_kelas_nama = c4.selectbox("Pilih Kelas*", options=kelas_dict.keys(), key="kelas_tambah")
             no_wa_ortu = st.text_input("No. WA Orang Tua")
             
-            submitted = st.form_submit_button("Tambah Siswa")
-            if submitted:
+            if st.form_submit_button("Tambah Siswa"):
                 if nis and nama_lengkap and selected_kelas_nama:
                     id_kelas_terpilih = kelas_dict[selected_kelas_nama]
                     with st.spinner("Menyimpan data siswa..."):
@@ -129,29 +171,29 @@ def show_daftar_siswa():
                             st.toast(f"✅ Siswa '{nama_lengkap}' berhasil ditambahkan.")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Gagal menambahkan siswa. Pastikan NIS unik.")
+                            st.error(f"Gagal menambahkan siswa. Pastikan NIS unik. Error: {e}")
                         finally:
                             conn.close()
                 else:
                     st.warning("Input dengan tanda (*) tidak boleh kosong.")
-    
-    # --- CRUD: UPDATE & DELETE (Edit dan Hapus Siswa) ---
+
     if list_siswa:
         with st.expander("📝 Edit atau Hapus Data Siswa"):
-            siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, _, _, _, _ in list_siswa}
-            selected_siswa_nama = st.selectbox("Pilih siswa untuk diubah/dihapus", options=siswa_dict.keys())
+            siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, *_, angkatan in list_siswa}
+            selected_siswa_nama = st.selectbox("Pilih siswa untuk diubah/dihapus", options=siswa_dict.keys(), key="edit_siswa_select")
             nis_terpilih = siswa_dict.get(selected_siswa_nama)
             
             if nis_terpilih:
-                # Mengambil detail siswa yang terpilih
+                # Logika edit dan hapus siswa ditempatkan di sini
+                st.write(f"Opsi untuk mengedit atau menghapus siswa {selected_siswa_nama} (NIS: {nis_terpilih})")
                 selected_details = next((item for item in list_siswa if item[0] == nis_terpilih), None)
                 
                 if selected_details:
                     with st.form(f"form_edit_siswa_{nis_terpilih}"):
                         st.write(f"**Edit Siswa: {selected_siswa_nama}**")
                         
-                        # Mengambil detail dari tuple
-                        _, nik_val, nisn_val, nama_val, jk_val, no_wa_val, kelas_val, _ = selected_details
+                        # KODE BENAR (menampung 9 nilai)
+                        _, nik_val, nisn_val, nama_val, jk_val, no_wa_val, kelas_val, _, _ = selected_details
                         
                         edit_nik = st.text_input("NIK Siswa Baru", value=nik_val)
                         edit_nisn = st.text_input("NISN Baru", value=nisn_val)
@@ -204,7 +246,8 @@ def show_import_excel():
         st.warning("Belum ada data kelas. Silakan tambahkan data kelas terlebih dahulu.")
         return
         
-    kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas}
+    # KODE BENAR (menampung 4 nilai)
+    kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
     selected_kelas_nama = st.selectbox("Pilih Kelas untuk siswa yang akan di-import", options=kelas_dict.keys())
     
     uploaded_file = st.file_uploader("Pilih file Excel", type=['xlsx'])
@@ -291,7 +334,8 @@ def show_naik_kelas():
     if len(list_kelas_db) < 2:
         st.warning("Anda memerlukan setidaknya 2 kelas untuk proses ini.")
         return
-    kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas_db}
+    # KODE BENAR di dalam show_naik_kelas
+    kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_db}
     col1, col2 = st.columns(2)
     kelas_asal_nama = col1.selectbox("Pilih kelas asal", options=kelas_dict.keys(), key="kelas_asal")
     pilihan_tujuan = [nama for nama in kelas_dict.keys() if nama != kelas_asal_nama]
@@ -324,7 +368,8 @@ def show_pindah_kelas():
     if not list_kelas_db:
         st.warning("Belum ada data kelas.")
         return
-    kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas_db}
+# KODE BENAR di dalam show_naik_kelas
+    kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_db}
     col1, col2 = st.columns(2)
     with col1:
         st.write("**Dari Kelas:**")
@@ -367,7 +412,8 @@ def show_tinggal_kelas():
     if not list_kelas_db:
         st.warning("Belum ada data kelas.")
         return
-    kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas_db}
+# KODE BENAR di dalam show_naik_kelas
+    kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_db}
     kelas_asal_nama = st.selectbox("Pilih kelas", options=kelas_dict.keys(), key="tinggal_kelas_asal")
     id_kelas_asal = kelas_dict.get(kelas_asal_nama)
     if id_kelas_asal:
@@ -399,7 +445,8 @@ def show_kelulusan():
     if not list_kelas_db:
         st.warning("Belum ada data kelas.")
         return
-    kelas_dict = {f"{nama} ({tahun})": id_kelas for id_kelas, nama, tahun in list_kelas_db}
+# KODE BENAR di dalam show_kelulusan
+    kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_db}
     kelas_asal_nama = st.selectbox("Pilih kelas yang akan diluluskan", options=kelas_dict.keys(), key="lulus_kelas_asal")
     id_kelas_asal = kelas_dict.get(kelas_asal_nama)
     if id_kelas_asal:
@@ -446,7 +493,7 @@ def show_cetak_kartu():
             st.markdown('</div>', unsafe_allow_html=True)
             return
             
-        pilihan_siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, _, _, _, _ in list_siswa_db}
+        pilihan_siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, _, _, _, _, _ in list_siswa_db}
         siswa_terpilih_nama = st.selectbox("Pilih Siswa:", options=pilihan_siswa_dict.keys())
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -468,7 +515,7 @@ def show_cetak_kartu():
             st.markdown(print_css, unsafe_allow_html=True)
 
             # Mengambil data untuk nama file dan konten
-            nis, _, _, nama, _, no_wa, kelas, _ = data_siswa
+            nis, _, _, nama, _, no_wa, kelas, _, _ = data_siswa
             # Menggunakan regex untuk membersihkan nama file dari karakter tidak valid
             safe_nama = re.sub(r'[\\/*?:"<>|]', "", nama)
             safe_kelas = re.sub(r'[\\/*?:"<>|]', "", kelas)
@@ -501,88 +548,133 @@ def show_cetak_kartu():
             st.write("**Pratinjau Kartu:**")
             st.components.v1.html(card_html, height=650, scrolling=True)
 
-# --- FUNGSI RENDER UTAMA MODUL ---
+# --- FUNGSI RENDER UTAMA MODUL (VERSI FINAL DENGAN LAYOUT RAPI) ---
 def render():
-# Ganti blok <style> yang lama dengan yang ini untuk GAYA "ASAH"
+    # Definisi Ikon (tetap sama)
+    icon_kelas = load_svg("assets/modulsiswa/datakelas.svg")
+    icon_siswa = load_svg("assets/modulsiswa/daftarsiswa.svg")
+    icon_import = load_svg("assets/modulsiswa/importexcel.svg")
+    icon_naik = load_svg("assets/modulsiswa/naikkelas.svg")
+    icon_pindah = load_svg("assets/modulsiswa/pindah kelas.svg")
+    icon_tinggal = load_svg("assets/modulsiswa/tinggalkelas.svg")
+    icon_lulus = load_svg("assets/modulsiswa/kelulusan.svg")
+    icon_kartu = load_svg("assets/modulsiswa/cetakkartu.svg")
+    
+    # --- PERBAIKAN CSS ---
     st.markdown("""
         <style>
             /* Latar belakang utama */
             .main, [data-testid="stAppViewContainer"] {
-                background-color: #FFF7E8;
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #FFF7E8;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            }
+            /* Menargetkan container luar dari setiap item menu */
+            div.st-emotion-cache-1r6slb0 {
+            background-color: #FFF7E8; /* Warna latar belakang kartu */
+            padding: 1rem 1.5rem;      /* Jarak dalam (atas/bawah, kanan/kiri) */
+            border-radius: 12px;        /* Sudut yang melengkung */
+            border: 1px solid #E0E0E0;  /* Garis tepi tipis */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* Bayangan halus */
+            display: flex;              /* Menggunakan Flexbox untuk mensejajarkan item */
+            align-items: center;        /* Menjajarkan ikon dan teks secara vertikal di tengah */
+            gap: 1.5rem;                /* Jarak antara ikon dan teks */
+            height: 100%;               /* Memastikan tinggi kartu konsisten dalam satu baris */
             }
 
-            /* Gaya Kotak Konten (SEMI-TRANSPARAN) */
-            .st-emotion-cache-1d8vwwt,
-            [data-testid="stForm"],
-            div[data-testid="stExpander"] {
-                background-color: rgba(0, 0, 0, 0.7) !important;
-                border: 1px solid #495057 !important;
-                border-radius: 12px !important;
-                padding: 1.5rem !important;
-                box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            /* Efek hover pada container */
+            div.st-emotion-cache-1r6slb0:hover {
+                border-color: #E0E0E0; !important;
+                transform: translateY(-3px);
+                box-shadow: 0 8px 16px rgba(0,0,0,0.2);
             }
             
-            .st-emotion-cache-1d8vwwt:hover {
-                border-color: #007BFF !important;
-                transform: translateY(-5px);
+            /* Wrapper untuk konten (ikon dan label) */
+            .menu-item-content {
+                text-align: center;
+                flex-grow: 1; /* Memastikan konten mengisi ruang & mendorong tombol ke bawah */
             }
 
-            /* Penyesuaian Warna Teks di Dalam Kotak Gelap */
-            .st-emotion-cache-1d8vwwt h5, [data-testid="stForm"] h6, div[data-testid="stExpander"] summary,
-            [data-testid="stForm"] label {
-                color: #FFFFFF !important;
-                font-weight: 600;
+            /* Gaya Ikon SVG */
+            .menu-icon-container svg {
+                width: 48px;
+                height: 48px;
+                fill: white; /* Warna ikon putih */
+                margin-bottom: 10px;
+                transition: transform 0.2s ease-in-out;
             }
-            .st-emotion-cache-1d8vwwt h5::before {
-                content: ''; position: absolute; left: 0; top: 50%;
-                transform: translateY(-50%); width: 8px; height: 100%;
-                background-color: #007BFF; border-radius: 4px;
-            }
-            .st-emotion-cache-1d8vwwt h5 { position: relative; padding-left: 20px; }
-            .st-emotion-cache-1d8vwwt p, div[data-testid="stExpander"] p {
-                color: #E0E0E0 !important;
-            }
-            .st-emotion-cache-1d8vwwt p { flex-grow: 1; }
 
-            /* --- GAYA TOMBOL (REVISI AKHIR) --- */
-            /* Membuat SEMUA jenis tombol menjadi biru, termasuk di dalam form */
-            .stButton > button, 
-            [data-testid="stDownloadButton"] > button, 
-            [data-testid="stForm"] button {
-                background-color: #007BFF !important;
-                color: white !important;
-                border: none !important;
-                border-radius: 8px !important;
-                font-weight: 600 !important;
+            /* Efek hover pada Ikon */
+            div.st-emotion-cache-1r6slb0:hover .menu-icon-container svg {
+                transform: scale(1.1);
+                fill: #00A2FF; /* Warna ikon berubah saat hover */
             }
-            .stButton > button:hover, 
-            [data-testid="stDownloadButton"] > button:hover, 
-            [data-testid="stForm"] button:hover {
+
+            /* Gaya Label Teks (h5) */
+            .menu-item-content h5 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin: 0.5rem 0;
+            text-align: center; /* Teks di tengah */
+            }
+
+            /* Tombol Menu */
+            .stButton > button {
+                background-color: #007BFF !important; /* Warna latar biru */
+            color: white !important;               /* Warna teks putih */
+            font-weight: bold;
+            border-radius: 8px !important;
+            border: none !important;               /* Menghilangkan garis tepi */
+            width: 100% !important;                /* Lebar penuh */
+            padding: 0.75rem 0 !important;         /* Jarak dalam (padding) diperbesar */
+            font-size: 1rem !important;
+            }
+            .stButton > button:hover {
                 background-color: #0056b3 !important;
+            }
+            /* --- DESAIN RESPONSIVE --- */
+            @media (max-width: 768px) {
+                .menu-title {
+                    font-size: 1rem;
+                }
             }
         </style>
         """, unsafe_allow_html=True)
-        
-    st.title("📊 Modul Data Siswa")
+    
     if 'data_siswa_view' not in st.session_state:
         st.session_state.data_siswa_view = 'menu'
-    if st.session_state.data_siswa_view != 'menu':
-        if st.button("⬅️ Kembali ke Menu Data Siswa"):
-            st.session_state.data_siswa_view = 'menu'
-            st.rerun()
+
+    # --- PERUBAHAN DI SINI ---
+    # Kolom diubah untuk memposisikan tombol di kanan
+    _, back_col = st.columns([0.8, 0.2]) # 80% ruang kosong di kiri, 20% untuk tombol di kanan
+    
+    with back_col:
+        if st.session_state.data_siswa_view != 'menu':
+            if st.button("⬅️ Kembali ke Menu"):
+                st.session_state.data_siswa_view = 'menu'
+                st.rerun()
+        else:
+            if st.button("⬅️ Menu Utama"):
+                st.session_state.page = 'home'
+                if 'page' in st.query_params:
+                    st.query_params.clear()
+                st.rerun()
+                
+    st.title("📊 Modul Data Siswa")
+        
     if st.session_state.data_siswa_view == 'menu':
         st.markdown("---")
         menu_options = {
-            'master_kelas': {"label": "📇 Data Kelas", "desc": "Kelola data master kelas dan tahun ajaran."},
-            'daftar_siswa': {"label": "➕ Daftar Siswa", "desc": "Lihat, tambah, edit, dan hapus data siswa."},
-            'import_excel': {"label": "📥 Import Excel", "desc": "Impor data siswa dari file template Excel."},
-            'naik_kelas': {"label": "⬆️ Naik Kelas", "desc": "Proses kenaikan kelas di kelas tertentu."},
-            'pindah_kelas': {"label": "➡️ Pindah Kelas", "desc": "Pindahkan beberapa siswa ke kelas lain."},
-            'tinggal_kelas': {"label": "❌ Tinggal Kelas", "desc": "Ubah status siswa menjadi 'Tinggal Kelas'."},
-            'kelulusan': {"label": "🎓 Kelulusan", "desc": "Proses kelulusan untuk siswa di tingkat akhir."},
-            'cetak_kartu': {"label": "💳 Cetak Kartu", "desc": "Cetak kartu pembayaran siswa."}
+            'master_kelas': {"label": "Data Kelas", "icon": icon_kelas},
+            'daftar_siswa': {"label": "Daftar Siswa", "icon": icon_siswa},
+            'import_excel': {"label": "Import Excel", "icon": icon_import},
+            'naik_kelas': {"label": "Naik Kelas", "icon": icon_naik},
+            'pindah_kelas': {"label": "Pindah Kelas", "icon": icon_pindah},
+            'tinggal_kelas': {"label": "Tinggal Kelas", "icon": icon_tinggal},
+            'kelulusan': {"label": "Kelulusan", "icon": icon_lulus},
+            'cetak_kartu': {"label": "Cetak Kartu", "icon": icon_kartu}
         }
+        
         items = list(menu_options.items())
         num_cols = 4
         for i in range(0, len(items), num_cols):
@@ -590,18 +682,17 @@ def render():
             row_items = items[i:i+num_cols]
             for j, (view, content) in enumerate(row_items):
                 with cols[j]:
-                    container = st.container(border=True)
-                    container.markdown(f"<h5>{content['label']}</h5>", unsafe_allow_html=True)
-                    container.markdown(f"<p>{content['desc']}</p>", unsafe_allow_html=True)
-                    if container.button("Pilih Menu", key=f"btn_{view}", use_container_width=True):
+                    st.markdown(f"""
+                        <div class="menu-item-content">
+                            <div class="menu-icon-container">{content['icon']}</div>
+                            <h5>{content['label']}</h5>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if st.button("Pilih Menu", key=f"btn_{view}", use_container_width=True):
                         st.session_state.data_siswa_view = view
                         st.rerun()
-        st.markdown("---")
-        if st.button("⬅️ Kembali ke Menu Utama"):
-            st.session_state.page = 'home'
-            if 'page' in st.query_params:
-                st.query_params.clear()
-            st.rerun()
+
     else:
         view_function_map = {
             'master_kelas': show_master_kelas, 'daftar_siswa': show_daftar_siswa, 'import_excel': show_import_excel,
@@ -611,3 +702,8 @@ def render():
         render_function = view_function_map.get(st.session_state.data_siswa_view)
         if render_function:
             render_function()
+
+# Untuk menjalankan file ini secara mandiri
+if __name__ == "__main__":
+    db.setup_database()
+    render()

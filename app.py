@@ -59,37 +59,103 @@ db.setup_database()
 def show_main_dashboard():
     st.markdown("""
     <style>
-        .main, [data-testid="stAppViewContainer"] {
-            background-color: #FFF7E8;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .metric-card {
-            background-color: #FFF7E8; padding: 1rem 1.5rem; border-radius: 12px;
-            border: 1px solid #E0E0E0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-            display: flex; align-items: center; gap: 1.5rem; height: 100%;
-        }
-        .metric-card-icon {
-            background-color: #FFF7E8; padding: 0.8rem; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            width: 64px; height: 64px; box-sizing: border-box;
-        }
-        .metric-card-icon img { max-width: 30px; max-height: 30px; }
-        .metric-card-label { font-size: 1rem; color: #555555; margin-bottom: 0.1rem; }
-        .metric-card-value { font-size: 1.5rem; font-weight: 600; color: #1a1a1a; }
+    /* --- PENGATURAN GLOBAL --- */
+    /* Mengatur warna latar belakang utama seluruh halaman menjadi krem */
+    .main, [data-testid="stAppViewContainer"] {
+        background-color: #FFF7E8;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Mengatur jenis font default */
+    }
+
+    /* --- KARTU METRIK (UNTUK DASBOR) --- */
+    /* Gaya untuk kotak yang menampilkan statistik/angka (misal: jumlah siswa) */
+    .metric-card {
+        background-color: #FFF7E8; /* Warna latar belakang kartu */
+        padding: 1rem 1.5rem;       /* Jarak dalam (atas/bawah, kanan/kiri) */
+        border-radius: 12px;        /* Sudut yang melengkung */
+        border: 1px solid #E0E0E0;  /* Garis tepi tipis */
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* Bayangan halus */
+        display: flex;              /* Menggunakan Flexbox untuk mensejajarkan item */
+        align-items: center;        /* Menjajarkan ikon dan teks secara vertikal di tengah */
+        gap: 1.5rem;                /* Jarak antara ikon dan teks */
+        height: 100%;               /* Memastikan tinggi kartu konsisten dalam satu baris */
+    }
+    /* Gaya untuk wadah ikon di dalam kartu metrik */
+    .metric-card-icon {
+        background-color: #FFF7E8;
+        padding: 0.8rem;
+        border-radius: 50%;         /* Membuat bentuknya menjadi lingkaran sempurna */
+        display: flex;
+        align-items: center;
+        justify-content: center;    /* Ikon berada tepat di tengah lingkaran */
+        width: 64px;
+        height: 64px;
+        box-sizing: border-box;
+    }
+    /* Mengatur ukuran maksimum gambar ikon di dalam kartu metrik */
+    .metric-card-icon img {
+        max-width: 30px;
+        max-height: 30px;
+    }
+    /* Gaya untuk teks label kecil (misal: "Total Siswa") */
+    .metric-card-label {
+        font-size: 1rem;
+        color: #555555;
+        margin-bottom: 0.1rem;
+    }
+    /* Gaya untuk angka/nilai besar (misal: "350") */
+    .metric-card-value {
+        font-size: 1.5rem;
+        font-weight: 600; /* Teks tebal */
+        color: #1a1a1a;
+    }
+
+    /* --- ITEM MENU --- */
+    /* Gaya untuk judul di setiap kotak menu */
+    .menu-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: #1a1a1a;
+        margin: 0.5rem 0;
+        text-align: center; /* Teks di tengah */
+    }
+    /* Gaya untuk wadah ikon di setiap kotak menu */
+    .menu-icon-container {
+        height: 80px;           /* Memberi tinggi tetap agar ikon sejajar */
+        margin-bottom: 0.5rem;
+        text-align: center;
+    }
+    /* Mengatur agar gambar ikon tidak melebihi wadahnya */
+    .menu-icon-container img {
+        max-height: 100%;
+        max-width: 100%;
+    }
+
+    /* --- TOMBOL --- */
+    /* Gaya default untuk semua tombol Streamlit, KECUALI yang memiliki class 'logout-button' */
+    .stButton > button:not(.logout-button button) {
+        background-color: #007BFF !important; /* Warna latar biru */
+        color: white !important;              /* Warna teks putih */
+        font-weight: bold;
+        border-radius: 8px !important;
+        border: none !important;              /* Menghilangkan garis tepi */
+        width: 100% !important;               /* Lebar penuh */
+        padding: 0.75rem 0 !important;        /* Jarak dalam (padding) diperbesar */
+        font-size: 1rem !important;
+    }
+    /* Gaya untuk tombol saat pointer mouse berada di atasnya (hover) */
+    .stButton > button:not(.logout-button button):hover {
+        background-color: #0056b3 !important; /* Warna biru lebih gelap */
+    }
+
+    /* --- DESAIN RESPONSIVE --- */
+    /* Aturan ini hanya berlaku untuk layar dengan lebar 768px ke bawah (misal: HP) */
+    @media (max-width: 768px) {
+        /* Mengecilkan ukuran font judul menu agar muat di layar kecil */
         .menu-title {
-            font-size: 1.2rem; font-weight: 600; color: #1a1a1a;
-            margin: 0.5rem 0; text-align: center;
+            font-size: 1rem;
         }
-        .menu-icon-container { height: 80px; margin-bottom: 0.5rem; text-align: center; }
-        .menu-icon-container img { max-height: 100%; max-width: 100%; }
-        .stButton > button:not(.logout-button button) {
-            background-color: #007BFF !important; color: white !important;
-            font-weight: bold; border-radius: 8px !important; border: none !important;
-            width: 100% !important; padding: 0.75rem 0 !important; font-size: 1rem !important;
-        }
-        .stButton > button:not(.logout-button button):hover { background-color: #0056b3 !important; }
-        @media (max-width: 768px) { .menu-title { font-size: 1rem; } }
-    </style>
+    }
+</style>
     """, unsafe_allow_html=True)
 
     # --- Header ---

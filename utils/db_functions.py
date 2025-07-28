@@ -187,12 +187,47 @@ def update_kelas(conn, id_kelas, angkatan_baru, nama_baru, tahun_ajaran_baru):
     cursor.execute(sql, (angkatan_baru, nama_baru, tahun_ajaran_baru, id_kelas))
     conn.commit()
 
+def update_kelas_siswa(conn, nis, id_kelas_baru):
+    """
+    HANYA memperbarui kolom id_kelas untuk seorang siswa berdasarkan NIS.
+    Fungsi ini khusus untuk fitur pindah/naik kelas.
+    """
+    sql = ''' UPDATE siswa
+              SET id_kelas = ?
+              WHERE nis = ? '''
+    cursor = conn.cursor()
+    cursor.execute(sql, (id_kelas_baru, nis))
+    conn.commit()
+
 def hapus_kelas(conn, id_kelas):
     sql = 'DELETE FROM kelas WHERE id = ?'
     cursor = conn.cursor()
     cursor.execute(sql, (id_kelas,))
     conn.commit()
 
+# Tambahkan di bagian --- Fungsi-fungsi untuk Kelas ---
+def get_semua_kelas_dengan_jumlah_siswa(conn):
+    """Mengambil semua data kelas beserta jumlah siswa aktif di dalamnya."""
+    cursor = conn.cursor()
+    query = """
+        SELECT k.id, k.angkatan, k.nama_kelas, k.tahun_ajaran, COUNT(s.nis) as jumlah_siswa
+        FROM kelas k
+        LEFT JOIN siswa s ON k.id = s.id_kelas AND s.status = 'Aktif'
+        GROUP BY k.id, k.angkatan, k.nama_kelas, k.tahun_ajaran
+        ORDER BY k.angkatan DESC, k.nama_kelas ASC
+    """
+    cursor.execute(query)
+    return cursor.fetchall()
+
+def update_status_siswa(conn, nis, status_baru):
+    """Memperbarui status seorang siswa (misal: Aktif, Lulus, Tinggal Kelas)."""
+    sql = ''' UPDATE siswa
+              SET status = ?
+              WHERE nis = ? '''
+    cursor = conn.cursor()
+    cursor.execute(sql, (status_baru, nis))
+    conn.commit()
+    
 # --- Fungsi-fungsi untuk Siswa ---
 
 def tambah_siswa(conn, nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, id_kelas):

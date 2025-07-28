@@ -4,20 +4,20 @@ from utils import db_functions as db
 import io
 import re
 import barcode
+import json
 from barcode.writer import ImageWriter
 import base64
+from datetime import datetime # DITAMBAHKAN untuk tanggal & jam cetak
 
 # --- FUNGSI CACHING UNTUK PERFORMA ---
-# Tambahkan fungsi ini di bawah baris import
 def load_svg(filepath):
     """Membaca dan mengembalikan konten dari file SVG."""
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        # Mengembalikan ikon default jika file tidak ditemukan
         return """<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-question-circle" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-1.057 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"/></svg>"""
-    
+
 @st.cache_data(ttl=600)
 def get_semua_kelas_cached():
     """Mengambil daftar kelas dari DB dan menyimpannya di cache."""
@@ -45,9 +45,70 @@ def format_status_badge(status):
     badge_style = f"background-color: {bg_color}; color: #333; padding: 5px 12px; border-radius: 15px; text-align: center; font-weight: 600; font-size: 12px; display: inline-block;"
     return f'<div style="{badge_style}">{status}</div>'
 
-# --- FUNGSI SUB-HALAMAN (LENGKAP DAN DIPERBAIKI) ---
+# --- FUNGSI BANTUAN BARU ---
+def terbilang(n):
+    """Mengubah angka menjadi tulisan. Memerlukan implementasi yang lebih lengkap."""
+    # Placeholder sederhana untuk demonstrasi
+    if n == 1175000:
+        return "Satu Juta Seratus Tujuh Puluh Lima Ribu Rupiah"
+    return "Fungsi terbilang belum diimplementasikan sepenuhnya."
+
+def load_config():
+    """Membaca dan memuat data dari file config.json."""
+    try:
+        with open("config.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Mengembalikan nilai default jika file tidak ada atau error
+        st.error("File config.json tidak ditemukan atau formatnya salah.")
+        return {
+            "nama_lembaga": "NAMA LEMBAGA",
+            "alamat": "Alamat Lembaga",
+            "telp": "-",
+            "website": "-",
+            "logo_path": "logo.png"
+        }
+    
+# (Ganti fungsi terbilang lama Anda dengan yang ini)
+def terbilang(n):
+    """Mengubah angka integer menjadi format kalimat terbilang dalam Bahasa Indonesia."""
+    n = int(n) # Pastikan input adalah integer
+    if n < 0:
+        return "Minus " + terbilang(abs(n))
+    
+    satuan = ["", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan"]
+    
+    if n < 10:
+        return satuan[n]
+    if n == 10:
+        return "sepuluh"
+    if n == 11:
+        return "sebelas"
+    if n < 20:
+        return terbilang(n % 10) + " belas"
+    if n < 100:
+        return satuan[n // 10] + " puluh " + terbilang(n % 10)
+    if n < 200:
+        return "seratus " + terbilang(n % 100)
+    if n < 1000:
+        return terbilang(n // 100) + " ratus " + terbilang(n % 100)
+    if n < 2000:
+        return "seribu " + terbilang(n % 1000)
+    if n < 1000000:
+        return terbilang(n // 1000) + " ribu " + terbilang(n % 1000)
+    if n < 1000000000:
+        return terbilang(n // 1000000) + " juta " + terbilang(n % 1000000)
+    if n < 1000000000000:
+        return terbilang(n // 1000000000) + " miliar " + terbilang(n % 1000000000)
+    
+    # Menghapus spasi ganda dan merapikan output
+    hasil = ' '.join(terbilang(n).split()).title()
+    return hasil + " Rupiah"
+
+# --- FUNGSI SUB-HALAMAN ---
 
 def show_master_kelas():
+    # ... (Kode tidak berubah)
     st.subheader("Master Data Kelas")
     with st.form("form_tambah_kelas", clear_on_submit=True):
         st.markdown("<h6>Tambah Kelas Baru</h6>", unsafe_allow_html=True)
@@ -102,17 +163,18 @@ def show_master_kelas():
                         with st.spinner("Menghapus..."):
                             conn = db.create_connection()
                             try:
-                               if db.get_siswa_by_kelas(conn, id_kelas_terpilih):
-                                   st.error("Tidak bisa menghapus kelas karena masih ada siswa di dalamnya.")
-                               else:
-                                   db.hapus_kelas(conn, id_kelas_terpilih)
-                                   st.cache_data.clear()
-                                   st.toast(f"🗑️ Kelas {selected_kelas_nama} telah dihapus.")
-                                   st.rerun()
+                                if db.get_siswa_by_kelas(conn, id_kelas_terpilih):
+                                    st.error("Tidak bisa menghapus kelas karena masih ada siswa di dalamnya.")
+                                else:
+                                    db.hapus_kelas(conn, id_kelas_terpilih)
+                                    st.cache_data.clear()
+                                    st.toast(f"🗑️ Kelas {selected_kelas_nama} telah dihapus.")
+                                    st.rerun()
                             finally:
                                 conn.close()
 
 def show_daftar_siswa():
+    # ... (Kode tidak berubah)
     st.subheader("Data Induk Siswa")
     
     list_angkatan = ["Semua Angkatan"] + get_semua_angkatan_cached()
@@ -158,7 +220,7 @@ def show_daftar_siswa():
             st.markdown("<h6>Informasi Akademik & Kontak</h6>", unsafe_allow_html=True)
             c3, c4 = st.columns(2)
             nis = c3.text_input("NO INDUK (NIS)*", help="NIS harus unik untuk setiap siswa.")
-            selected_kelas_nama = c4.selectbox("Pilih Kelas*", options=kelas_dict.keys(), key="kelas_tambah")
+            selected_kelas_nama = c4.selectbox("Pilih Kelas*", options=list(kelas_dict.keys()), key="kelas_tambah")
             no_wa_ortu = st.text_input("No. WA Orang Tua")
             
             if st.form_submit_button("Tambah Siswa"):
@@ -184,15 +246,12 @@ def show_daftar_siswa():
             nis_terpilih = siswa_dict.get(selected_siswa_nama)
             
             if nis_terpilih:
-                # Logika edit dan hapus siswa ditempatkan di sini
-                st.write(f"Opsi untuk mengedit atau menghapus siswa {selected_siswa_nama} (NIS: {nis_terpilih})")
                 selected_details = next((item for item in list_siswa if item[0] == nis_terpilih), None)
                 
                 if selected_details:
                     with st.form(f"form_edit_siswa_{nis_terpilih}"):
                         st.write(f"**Edit Siswa: {selected_siswa_nama}**")
                         
-                        # KODE BENAR (menampung 9 nilai)
                         _, nik_val, nisn_val, nama_val, jk_val, no_wa_val, kelas_val, _, _ = selected_details
                         
                         edit_nik = st.text_input("NIK Siswa Baru", value=nik_val)
@@ -226,7 +285,9 @@ def show_daftar_siswa():
                             conn.close()
                         st.toast(f"🗑️ Siswa {selected_siswa_nama} telah dihapus.")
                         st.rerun()
+
 def show_import_excel():
+    # ... (Kode tidak berubah)
     st.subheader("📥 Import Data Siswa dari File Excel")
     st.markdown("#### 1. Unduh Template")
     template_df = pd.DataFrame({'nis': ['1001'],'nik_siswa': ['3524...'],'nisn': ['001...'],'nama_lengkap': ['Budi Santoso'],'jenis_kelamin': ['L'],'no_wa_ortu': ['0812...']})
@@ -246,9 +307,8 @@ def show_import_excel():
         st.warning("Belum ada data kelas. Silakan tambahkan data kelas terlebih dahulu.")
         return
         
-    # KODE BENAR (menampung 4 nilai)
     kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
-    selected_kelas_nama = st.selectbox("Pilih Kelas untuk siswa yang akan di-import", options=kelas_dict.keys())
+    selected_kelas_nama = st.selectbox("Pilih Kelas untuk siswa yang akan di-import", options=list(kelas_dict.keys()))
     
     uploaded_file = st.file_uploader("Pilih file Excel", type=['xlsx'])
     
@@ -256,17 +316,14 @@ def show_import_excel():
         try:
             df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
 
-            # Pemetaan Kolom
             column_mapping = {
                 'NO INDUK': 'nis', 'Nama Siswa': 'nama_lengkap',
                 'NIK Siswa': 'nik_siswa', 'NISN': 'nisn', 'L/P': 'jenis_kelamin','No Whatsapp': 'no_wa_ortu'
             }
             df_upload.rename(columns=column_mapping, inplace=True)
             
-            # FITUR BARU: Pembersihan data otomatis dari spasi ekstra
             for col in ['nis', 'nik_siswa', 'nisn', 'nama_lengkap', 'no_wa_ortu']:
                 if col in df_upload.columns:
-                    # Menggunakan .astype(str) untuk menghindari error jika ada data non-string
                     df_upload[col] = df_upload[col].astype(str).str.strip()
 
             st.write("**Preview Data dari File Anda (setelah disesuaikan):**")
@@ -283,17 +340,16 @@ def show_import_excel():
                 total_rows = len(df_upload)
                 progress_bar = st.progress(0, text="Memulai proses import...")
                 sukses_count, gagal_count = 0, 0
-                list_gagal = [] # FITUR BARU: Daftar untuk menyimpan detail kegagalan
+                list_gagal = []
 
                 for i, row in df_upload.iterrows():
                     nis_value = row.get('nis')
                     nama_value = row.get('nama_lengkap')
                     
-                    # FITUR BARU: Validasi data sebelum ke database
                     if not nis_value or not nama_value:
                         gagal_count += 1
                         list_gagal.append(f"Baris {i+2}: Gagal - NIS atau Nama Lengkap tidak boleh kosong.")
-                        continue # Lanjut ke baris berikutnya
+                        continue
 
                     try:
                         db.tambah_siswa(
@@ -304,7 +360,6 @@ def show_import_excel():
                         sukses_count += 1
                     except Exception as e:
                         gagal_count += 1
-                        # FITUR BARU: Pesan eror yang lebih spesifik
                         pesan_eror = str(e)
                         if "UNIQUE constraint failed" in pesan_eror:
                             pesan_eror = "NIS sudah ada di database."
@@ -315,7 +370,6 @@ def show_import_excel():
                 conn.close()
                 st.success(f"Proses import selesai! Berhasil: {sukses_count}, Gagal: {gagal_count}.")
 
-                # FITUR BARU: Tampilkan detail kegagalan jika ada
                 if list_gagal:
                     with st.expander("Lihat Detail Kegagalan Impor"):
                         for pesan in list_gagal:
@@ -324,8 +378,8 @@ def show_import_excel():
         except Exception as e:
             st.error(f"Terjadi kesalahan saat membaca atau memproses file: {e}")
 
-
 def show_naik_kelas():
+    # ... (Kode tidak berubah)
     st.subheader("⬆️ Posting Kenaikan Kelas")
     st.info("Fitur ini akan memindahkan SEMUA siswa dari kelas asal ke kelas tujuan.")
     conn = db.create_connection()
@@ -334,10 +388,9 @@ def show_naik_kelas():
     if len(list_kelas_db) < 2:
         st.warning("Anda memerlukan setidaknya 2 kelas untuk proses ini.")
         return
-    # KODE BENAR di dalam show_naik_kelas
     kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_db}
     col1, col2 = st.columns(2)
-    kelas_asal_nama = col1.selectbox("Pilih kelas asal", options=kelas_dict.keys(), key="kelas_asal")
+    kelas_asal_nama = col1.selectbox("Pilih kelas asal", options=list(kelas_dict.keys()), key="kelas_asal")
     pilihan_tujuan = [nama for nama in kelas_dict.keys() if nama != kelas_asal_nama]
     kelas_tujuan_nama = col2.selectbox("Pilih kelas tujuan", options=pilihan_tujuan, key="kelas_tujuan")
     if st.button("🚀 Proses Kenaikan Kelas", type="primary"):
@@ -360,6 +413,7 @@ def show_naik_kelas():
             st.balloons()
 
 def show_pindah_kelas():
+    # ... (Kode tidak berubah)
     st.subheader("➡️ Proses Pindah Kelas")
     st.info("Gunakan fitur ini untuk memindahkan siswa tertentu ke kelas lain.")
     conn = db.create_connection()
@@ -368,12 +422,11 @@ def show_pindah_kelas():
     if not list_kelas_db:
         st.warning("Belum ada data kelas.")
         return
-# KODE BENAR di dalam show_naik_kelas
     kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_db}
     col1, col2 = st.columns(2)
     with col1:
         st.write("**Dari Kelas:**")
-        kelas_asal_nama = st.selectbox("Pilih kelas asal", options=kelas_dict.keys(), key="pindah_kelas_asal")
+        kelas_asal_nama = st.selectbox("Pilih kelas asal", options=list(kelas_dict.keys()), key="pindah_kelas_asal")
         id_kelas_asal = kelas_dict.get(kelas_asal_nama)
         if id_kelas_asal:
             with st.spinner("Memuat siswa..."):
@@ -381,7 +434,7 @@ def show_pindah_kelas():
                 siswa_di_kelas = db.get_siswa_by_kelas(conn, id_kelas_asal)
                 conn.close()
             pilihan_siswa = {f"{nama} ({nis})": nis for nis, nama in siswa_di_kelas}
-            siswa_terpilih_nama = st.multiselect("Pilih siswa yang akan dipindahkan:", options=pilihan_siswa.keys())
+            siswa_terpilih_nama = st.multiselect("Pilih siswa yang akan dipindahkan:", options=list(pilihan_siswa.keys()))
     with col2:
         st.write("**Ke Kelas:**")
         pilihan_tujuan = [nama for nama in kelas_dict.keys() if nama != kelas_asal_nama]
@@ -404,6 +457,7 @@ def show_pindah_kelas():
         st.rerun()
 
 def show_tinggal_kelas():
+    # ... (Kode tidak berubah)
     st.subheader("❌ Proses Tinggal Kelas")
     st.info("Gunakan fitur ini untuk mengubah status siswa menjadi 'Tinggal Kelas'.")
     conn = db.create_connection()
@@ -412,9 +466,8 @@ def show_tinggal_kelas():
     if not list_kelas_db:
         st.warning("Belum ada data kelas.")
         return
-# KODE BENAR di dalam show_naik_kelas
     kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_db}
-    kelas_asal_nama = st.selectbox("Pilih kelas", options=kelas_dict.keys(), key="tinggal_kelas_asal")
+    kelas_asal_nama = st.selectbox("Pilih kelas", options=list(kelas_dict.keys()), key="tinggal_kelas_asal")
     id_kelas_asal = kelas_dict.get(kelas_asal_nama)
     if id_kelas_asal:
         with st.spinner("Memuat siswa..."):
@@ -422,7 +475,7 @@ def show_tinggal_kelas():
             siswa_di_kelas = db.get_siswa_by_kelas(conn, id_kelas_asal)
             conn.close()
         pilihan_siswa = {f"{nama} ({nis})": nis for nis, nama in siswa_di_kelas}
-        siswa_terpilih_nama = st.multiselect("Pilih siswa yang tinggal kelas:", options=pilihan_siswa.keys())
+        siswa_terpilih_nama = st.multiselect("Pilih siswa yang tinggal kelas:", options=list(pilihan_siswa.keys()))
         if st.button("✔️ Proses Siswa Tinggal Kelas"):
             if not siswa_terpilih_nama:
                 st.error("Tidak ada siswa yang dipilih.")
@@ -437,6 +490,7 @@ def show_tinggal_kelas():
             st.rerun()
 
 def show_kelulusan():
+    # ... (Kode tidak berubah)
     st.subheader("🎓 Posting Kelulusan")
     st.info("Gunakan fitur ini untuk mengubah status siswa menjadi 'Lulus'.")
     conn = db.create_connection()
@@ -445,9 +499,8 @@ def show_kelulusan():
     if not list_kelas_db:
         st.warning("Belum ada data kelas.")
         return
-# KODE BENAR di dalam show_kelulusan
     kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas_db}
-    kelas_asal_nama = st.selectbox("Pilih kelas yang akan diluluskan", options=kelas_dict.keys(), key="lulus_kelas_asal")
+    kelas_asal_nama = st.selectbox("Pilih kelas yang akan diluluskan", options=list(kelas_dict.keys()), key="lulus_kelas_asal")
     id_kelas_asal = kelas_dict.get(kelas_asal_nama)
     if id_kelas_asal:
         with st.spinner("Memuat siswa..."):
@@ -458,9 +511,9 @@ def show_kelulusan():
         pilih_semua = st.checkbox("Pilih Semua Siswa di Kelas Ini")
         if pilih_semua:
             siswa_terpilih_nama = list(pilihan_siswa.keys())
-            st.multiselect("Siswa yang akan diluluskan:", options=pilihan_siswa.keys(), default=siswa_terpilih_nama, disabled=True)
+            st.multiselect("Siswa yang akan diluluskan:", options=list(pilihan_siswa.keys()), default=siswa_terpilih_nama, disabled=True)
         else:
-            siswa_terpilih_nama = st.multiselect("Pilih siswa yang lulus:", options=pilihan_siswa.keys())
+            siswa_terpilih_nama = st.multiselect("Pilih siswa yang lulus:", options=list(pilihan_siswa.keys()))
         if st.button("🎓 Proses Kelulusan Siswa"):
             if not siswa_terpilih_nama:
                 st.error("Tidak ada siswa yang dipilih.")
@@ -474,83 +527,147 @@ def show_kelulusan():
             st.toast(f"✅ {len(nis_siswa_terpilih)} siswa berhasil ditandai 'Lulus'.")
             st.rerun()
 
-def show_cetak_kartu():
-    st.subheader("💳 Cetak Kartu Pembayaran Siswa")
+# (Ganti seluruh fungsi show_cetak_bukti_pembayaran Anda dengan kode ini)
+
+# GANTI FUNGSI LAMA ANDA DENGAN YANG INI SECARA KESELURUHAN
+def show_cetak_bukti_pembayaran():
+    st.subheader("📄 Cetak Ulang Bukti Pembayaran")
+    st.info("Gunakan filter di bawah ini untuk mencari transaksi yang ingin dicetak ulang.")
+
+    config = load_config()
+
+    # --- UI FILTER ---
+    list_angkatan = ["Semua Angkatan"] + get_semua_angkatan_cached()
+    list_kelas = get_semua_kelas_cached()
+    kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
+    kelas_options = ["Semua Kelas"] + list(kelas_dict.keys())
     
-    # Inisialisasi variabel di awal untuk menghindari NameError
-    siswa_terpilih_nama = None
+    with st.container(border=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            selected_angkatan_filter = st.selectbox("Filter Angkatan", options=list_angkatan, key="filter_angkatan")
+        with c2:
+            selected_kelas_filter_nama = st.selectbox("Filter per Kelas", options=kelas_options, key="filter_kelas")
+        with c3:
+            search_term = st.text_input("Cari Nama atau NIS", placeholder="Ketik untuk mencari...")
 
-    # Bagian UI (filter, dropdown) yang tidak ingin dicetak
-    with st.container():
-        st.markdown('<div class="no-print">', unsafe_allow_html=True)
-        with st.spinner("Memuat data siswa..."):
-            conn = db.create_connection()
-            list_siswa_db = db.get_filtered_siswa_detailed(conn)
-            conn.close()
-        
-        if not list_siswa_db:
-            st.warning("Belum ada data siswa untuk dicetak kartunya.")
-            st.markdown('</div>', unsafe_allow_html=True)
-            return
-            
-        pilihan_siswa_dict = {f"{nama} ({nis})": nis for nis, _, _, nama, _, _, _, _, _ in list_siswa_db}
-        siswa_terpilih_nama = st.selectbox("Pilih Siswa:", options=pilihan_siswa_dict.keys())
-        st.markdown('</div>', unsafe_allow_html=True)
+    id_kelas_filter = None
+    if selected_kelas_filter_nama != "Semua Kelas":
+        id_kelas_filter = kelas_dict.get(selected_kelas_filter_nama)
+    angkatan_filter = None if selected_angkatan_filter == "Semua Angkatan" else selected_angkatan_filter
 
-    # Hanya lanjutkan jika seorang siswa sudah dipilih dari dropdown
-    if siswa_terpilih_nama:
-        nis_terpilih = pilihan_siswa_dict[siswa_terpilih_nama]
-        
+    # --- Ambil data yang sudah difilter dari DB ---
+    with st.spinner("Mencari data transaksi..."):
         conn = db.create_connection()
-        data_siswa = db.get_single_siswa_detailed(conn, nis_terpilih)
+        # Anda masih memerlukan fungsi db.get_filtered_transaksi di db_functions.py
+        filtered_trans = db.get_filtered_transaksi(conn, search_term=search_term, kelas_id=id_kelas_filter, angkatan=angkatan_filter)
         conn.close()
 
-        if data_siswa:
-            # Mengatur CSS untuk print
-            print_css = """
-            <style>
-                @media print { .no-print { display: none !important; } }
-            </style>
-            """
-            st.markdown(print_css, unsafe_allow_html=True)
+    st.markdown("---")
 
-            # Mengambil data untuk nama file dan konten
-            nis, _, _, nama, _, no_wa, kelas, _, _ = data_siswa
-            # Menggunakan regex untuk membersihkan nama file dari karakter tidak valid
-            safe_nama = re.sub(r'[\\/*?:"<>|]', "", nama)
-            safe_kelas = re.sub(r'[\\/*?:"<>|]', "", kelas)
-            nama_file_pdf = f"Kartu_{safe_nama}_{safe_kelas}_{nis}.pdf"
-            
-            # Membuat Barcode dan Logo dalam format Base64
-            logo_base64 = ""
-            try:
-                with open("logo.png", "rb") as image_file:
-                    logo_base64 = base64.b64encode(image_file.read()).decode()
-            except FileNotFoundError:
-                st.warning("File logo.png tidak ditemukan. Logo tidak akan ditampilkan.")
-            
-            barcode_base64 = ""
-            try:
-                CODE128 = barcode.get_barcode_class('code128')
-                code128 = CODE128(nis_terpilih, writer=ImageWriter())
-                fp = io.BytesIO()
-                code128.write(fp)
-                barcode_base64 = base64.b64encode(fp.getvalue()).decode()
-            except Exception:
-                pass
+    if not filtered_trans:
+        st.warning("Tidak ada data transaksi yang cocok dengan filter Anda.")
+        return
 
-            # String HTML untuk Kartu
-            # Anda bisa menyesuaikan NAMA SEKOLAH dan ALAMAT di sini
-            card_html = f"""
-            <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.2/html2pdf.bundle.min.js"></script><style>body {{ font-family: sans-serif; }}.card-container {{border: 1px solid #ccc;padding: 15px;width: 450px;margin: auto;}}.header {{ display: flex; align-items: center; border-bottom: 1px solid #ccc; padding-bottom: 10px; }}.header img {{ width: 60px; margin-right: 15px; }}.header-text h3, .header-text p {{ margin: 0; }}.info {{ margin-top: 15px; }}.barcode {{ text-align: center; margin-top: 15px; }}.barcode img {{ width: 60%; }}.payment-header {{ text-align: center; background-color: #e0e0e0; padding: 5px; margin-top: 15px; font-weight: bold; }}table {{ width: 100%; border-collapse: collapse; margin-top: 5px;}}th, td {{ border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 12px;}}th {{ background-color: #f2f2f2; }}.download-button {{padding: 10px 20px; font-size: 16px; color: white;background-color: #007BFF; border: none; border-radius: 5px;cursor: pointer; display: block; margin: 20px auto;}}</style></head><body><div id="kartu-siswa" class="card-container"><div class="header"><img src="data:image/png;base64,{logo_base64}" alt="logo"><div class="header-text"><h3>MADRASAH FATHAN MUBINA</h3><p>Jln. Veteran III Tapos, Ciawi, Bogor.</p></div></div><div class="info"><b>NIS:</b> {nis}<br><b>NAMA:</b> {nama}<br><b>KELAS:</b> {kelas}</div><div class="barcode"><img src="data:image/png;base64,{barcode_base64}" alt="barcode"></div><div class="payment-header">KARTU PEMBAYARAN</div><table><tr><th>BULAN</th><th>TANGGAL</th><th>NOMINAL</th><th>PETUGAS</th><th>PARAF</th></tr>{''.join(['<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>' for _ in range(10)])}</table></div><button onclick="generatePDF()" class="download-button no-print">Unduh Kartu sebagai PDF</button><script>function generatePDF() {{const element = document.getElementById('kartu-siswa');const opt = {{margin:0.5,filename:'{nama_file_pdf}',image:{{ type: 'jpeg', quality: 0.98 }},html2canvas:{{ scale: 2 }},jsPDF:{{ unit: 'in', format: 'letter', orientation: 'portrait' }}}};html2pdf().from(element).set(opt).save();}}</script></body></html>
-            """
-            st.markdown("---")
-            st.write("**Pratinjau Kartu:**")
-            st.components.v1.html(card_html, height=650, scrolling=True)
+    # --- BAGIAN CETAK PERORANGAN ---
+    st.markdown(f"#### Ditemukan {len(filtered_trans)} transaksi. Silakan pilih satu untuk dicetak.")
+    trans_options = {f"ID: {t[0]} | {t[3]} (Rp {t[4]:,.0f}) | {t[1].split(' ')[0]}": t[0] for t in filtered_trans}
+    selected_trans_label = st.selectbox("Pilih Transaksi", options=trans_options.keys())
 
-# --- FUNGSI RENDER UTAMA MODUL (VERSI FINAL DENGAN LAYOUT RAPI) ---
+    if st.button("📄 Tampilkan Pratinjau & Cetak"):
+        if selected_trans_label:
+            selected_trans_id = trans_options[selected_trans_label]
+
+            conn = db.create_connection()
+            trans_info_tuple = db.get_transaksi_by_id(conn, selected_trans_id)
+            item_pembayaran_tuple = db.get_detail_by_transaksi(conn, selected_trans_id)
+            conn.close()
+
+            if trans_info_tuple:
+                # Proses data transaksi
+                trans_info = {
+                    'no_trans': trans_info_tuple[0],
+                    'tanggal_trans': datetime.strptime(trans_info_tuple[1], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y'),
+                    'jam_cetak': datetime.strptime(trans_info_tuple[1], '%Y-%m-%d %H:%M:%S').strftime('%H:%M:%S'),
+                    'nis': trans_info_tuple[2], 'nama_siswa': trans_info_tuple[3],
+                    'kelas': trans_info_tuple[4] or "Tidak ada kelas", 'grand_total': trans_info_tuple[5],
+                    'nama_petugas': trans_info_tuple[6]
+                }
+                
+                # Buat baris-baris item pembayaran
+                item_rows_html = ""
+                for i, item in enumerate(item_pembayaran_tuple):
+                    keterangan = f"{item[0]}" + (f" - {item[1]}" if item[1] else "")
+                    jumlah_formatted = f"{item[2]:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    item_rows_html += f'<tr><td class="col-no">{i+1}.</td><td class="col-ket">{keterangan}</td><td class="col-jml">{jumlah_formatted}</td></tr>'
+
+                grand_total_formatted = f"{trans_info['grand_total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                terbilang_text = terbilang(trans_info['grand_total'])
+                
+                logo_base64 = ""
+                logo_path = config.get("logo_path", "logo.png")
+                try:
+                    with open(logo_path, "rb") as image_file:
+                        logo_base64 = base64.b64encode(image_file.read()).decode()
+                except FileNotFoundError:
+                    st.warning(f"File logo '{logo_path}' tidak ditemukan.")
+                
+                # Buat HTML lengkap dengan skrip untuk unduh PDF di sisi klien (browser)
+                receipt_html = f"""
+                <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+                <style>
+                    body {{ font-family: 'Times New Roman', Times, serif; font-size: 10pt; color: #000; }}
+                    .receipt-container {{ width: 14.8cm; height: 21cm; padding: 1cm; margin: auto; background: #fff; box-sizing: border-box; overflow: hidden; }}
+                    .header {{ display: flex; align-items: flex-start; border-bottom: 2px solid #000; padding-bottom: 4px; }}
+                    .header img {{ width: 50px; height: auto; margin-right: 10px; }}
+                    .header .school-info h4 {{ font-size: 13pt; font-weight: bold; margin:0; }}
+                    .header .school-info p {{ font-size: 8pt; margin: 0; }}
+                    .title {{ text-align: center; font-weight: bold; font-size: 12pt; margin: 4px 0; border-bottom: 2px solid #000; padding-bottom: 4px;}}
+                    .info-section table {{ width: 100%; margin-top: 8px; font-size: 9pt; }}
+                    .info-section td {{ padding: 1px 4px; }}
+                    .payment-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+                    .payment-table th, .payment-table td {{ padding: 4px 6px; font-size: 9pt; }}
+                    .payment-table th {{ border-bottom: 1px solid #000; text-align: left; }}
+                    .col-no {{ width: 5%; }} .col-ket {{ width: 70%; }} .col-jml {{ width: 25%; text-align: right; }}
+                    .summary-section {{ border-top: 1px solid #000; padding-top: 8px; margin-top: 4px; display: flex; justify-content: space-between; font-size: 9pt;}}
+                    .terbilang-section {{ font-style: italic; max-width: 60%; }}
+                    .total-section {{ text-align: right; }}
+                    .total-section .grand-total {{ font-weight: bold; font-size: 12pt; }}
+                    .footer-section {{ border-top: 1px solid #000; padding-top: 8px; margin-top: 12px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 9pt; }}
+                    .disclaimer {{ font-size: 8pt; max-width: 50%; }}
+                    .signature {{ text-align: center; }}
+                    .signature .name {{ font-weight: bold; text-decoration: underline; margin-top: 40px; }}
+                    .download-button {{ display: block; text-align: center; width: 200px; margin: 20px auto; padding: 12px 20px; font-size: 14pt; color: white; background-color: #28a745; border: none; border-radius: 5px; cursor: pointer; font-family: 'Segoe UI', sans-serif; font-weight: bold; }}
+                    @media print {{ .no-print {{ display: none !important; }} }}
+                </style>
+                </head><body>
+                <div id="receipt" class="receipt-container">
+                    <div class="header"> <img src="data:image/png;base64,{logo_base64}" alt="logo"> <div class="school-info"> <h4>{config.get('nama_lembaga')}</h4> <p>{config.get('alamat')}</p> <p>Telp: {config.get('telp')} | Website: {config.get('website')}</p> </div> </div>
+                    <div class="title">BUKTI PEMBAYARAN SISWA</div>
+                    <div class="info-section"> <table> <tr><td>NO TRANS</td><td>: {trans_info['no_trans']}</td><td>NIS</td><td>: {trans_info['nis']}</td></tr> <tr><td>TANGGAL</td><td>: {trans_info['tanggal_trans']}</td><td>NAMA SISWA</td><td>: {trans_info['nama_siswa']}</td></tr> <tr><td>JAM CETAK</td><td>: {trans_info['jam_cetak']}</td><td>KELAS</td><td>: {trans_info['kelas']}</td></tr> </table> </div>
+                    <table class="payment-table"> <thead><tr><th class="col-no">No.</th><th class="col-ket">Keterangan Pembayaran</th><th class="col-jml">Jumlah (Rp.)</th></tr></thead> <tbody>{item_rows_html}</tbody> </table>
+                    <div class="summary-section"> <div class="terbilang-section"><b>Terbilang :</b><br>{terbilang_text}</div> <div class="total-section"><b>Grand Total :</b><br><span class="grand-total">{grand_total_formatted}</span></div> </div>
+                    <div class="footer-section"> <div class="disclaimer"> <b>*</b> Simpanlah sebagai bukti pembayaran yang SAH.<br> <b>-</b> Uang yang sudah dibayarkan tidak dapat diminta kembali. </div> <div class="signature"> Karanganyar, {datetime.now().strftime('%d %B %Y')}<br> Yang Menerima, <div class="name">{trans_info['nama_petugas']}</div> </div> </div>
+                </div>
+                <div class="no-print"> <button onclick="generatePDF()" class="download-button">⬇️ Unduh PDF</button> </div>
+                <script>
+                    function generatePDF() {{
+                        const element = document.getElementById('receipt');
+                        const opt = {{ margin: 0, filename: 'bukti_pembayaran_{trans_info['no_trans']}.pdf', image: {{ type: 'jpeg', quality: 1.0 }}, html2canvas: {{ scale: 3, useCORS: true }} }};
+                        html2pdf().from(element).set(opt).save();
+                    }}
+                </script>
+                </body></html>"""
+                
+                st.markdown("---")
+                st.write("**Pratinjau Nota (Ukuran A5):**")
+                st.components.v1.html(receipt_html, height=800, scrolling=True)
+
+            else:
+                st.error(f"Transaksi dengan ID {selected_trans_id} tidak ditemukan.")
+
+# --- FUNGSI RENDER UTAMA MODUL (TELAH DIMODIFIKASI) ---
 def render():
-    # Definisi Ikon (tetap sama)
     icon_kelas = load_svg("assets/modulsiswa/datakelas.svg")
     icon_siswa = load_svg("assets/modulsiswa/daftarsiswa.svg")
     icon_import = load_svg("assets/modulsiswa/importexcel.svg")
@@ -644,9 +761,7 @@ def render():
     if 'data_siswa_view' not in st.session_state:
         st.session_state.data_siswa_view = 'menu'
 
-    # --- PERUBAHAN DI SINI ---
-    # Kolom diubah untuk memposisikan tombol di kanan
-    _, back_col = st.columns([0.8, 0.2]) # 80% ruang kosong di kiri, 20% untuk tombol di kanan
+    _, back_col = st.columns([0.8, 0.2])
     
     with back_col:
         if st.session_state.data_siswa_view != 'menu':
@@ -664,6 +779,7 @@ def render():
         
     if st.session_state.data_siswa_view == 'menu':
         st.markdown("---")
+        # --- MENU DIMODIFIKASI ---
         menu_options = {
             'master_kelas': {"label": "Data Kelas", "icon": icon_kelas},
             'daftar_siswa': {"label": "Daftar Siswa", "icon": icon_siswa},
@@ -672,7 +788,7 @@ def render():
             'pindah_kelas': {"label": "Pindah Kelas", "icon": icon_pindah},
             'tinggal_kelas': {"label": "Tinggal Kelas", "icon": icon_tinggal},
             'kelulusan': {"label": "Kelulusan", "icon": icon_lulus},
-            'cetak_kartu': {"label": "Cetak Kartu", "icon": icon_kartu}
+            'cetak_bukti': {"label": "Cetak Bukti Bayar", "icon": icon_kartu} # Diubah dari Cetak Kartu
         }
         
         items = list(menu_options.items())
@@ -682,6 +798,7 @@ def render():
             row_items = items[i:i+num_cols]
             for j, (view, content) in enumerate(row_items):
                 with cols[j]:
+                    # Kode untuk menampilkan kartu menu tidak berubah
                     st.markdown(f"""
                         <div class="menu-item-content">
                             <div class="menu-icon-container">{content['icon']}</div>
@@ -694,10 +811,12 @@ def render():
                         st.rerun()
 
     else:
+        # --- PEMETAAN FUNGSI DIMODIFIKASI ---
         view_function_map = {
-            'master_kelas': show_master_kelas, 'daftar_siswa': show_daftar_siswa, 'import_excel': show_import_excel,
-            'naik_kelas': show_naik_kelas, 'pindah_kelas': show_pindah_kelas, 'tinggal_kelas': show_tinggal_kelas,
-            'kelulusan': show_kelulusan, 'cetak_kartu': show_cetak_kartu
+            'master_kelas': show_master_kelas, 'daftar_siswa': show_daftar_siswa,
+            'import_excel': show_import_excel, 'naik_kelas': show_naik_kelas,
+            'pindah_kelas': show_pindah_kelas, 'tinggal_kelas': show_tinggal_kelas,
+            'kelulusan': show_kelulusan, 'cetak_bukti': show_cetak_bukti_pembayaran # Diarahkan ke fungsi baru
         }
         render_function = view_function_map.get(st.session_state.data_siswa_view)
         if render_function:

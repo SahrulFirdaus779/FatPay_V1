@@ -350,6 +350,120 @@ def get_tagihan_by_siswa(conn, nis):
     """, (nis,))
     return cursor.fetchall()
 
+def get_tagihan_by_pos(conn, id_pos):
+    """
+    Mengambil data tagihan yang belum lunas untuk satu jenis pembayaran (pos) tertentu.
+    Hanya mengambil data siswa yang memiliki No. WA Orang Tua.
+    Mengembalikan daftar berisi (nama_siswa, no_wa_ortu, nama_pembayaran, sisa_tagihan).
+    """
+    sql = """
+        SELECT
+            s.nama_lengkap,
+            s.no_wa_ortu,
+            pp.nama_pos,
+            t.sisa_tagihan
+        FROM
+            tagihan t
+        JOIN
+            siswa s ON t.nis_siswa = s.nis
+        JOIN
+            pos_pembayaran pp ON t.id_pos = pp.id -- <-- PERBAIKAN 1
+        WHERE
+            t.id_pos = ? -- <-- PERBAIKAN 2
+            AND t.sisa_tagihan > 0
+            AND s.no_wa_ortu IS NOT NULL
+            AND s.no_wa_ortu != ''
+    """
+    cursor = conn.cursor()
+    cursor.execute(sql, (id_pos,))
+    rows = cursor.fetchall()
+    return rows
+
+def is_pos_pembayaran_in_use(conn, id_pos):
+    """
+    Memeriksa apakah sebuah jenis pembayaran (POS) sudah digunakan di tabel tagihan.
+    Mengembalikan True jika sudah digunakan, False jika belum.
+    """
+    cursor = conn.cursor()
+    # Query sederhana untuk memeriksa keberadaan record
+    cursor.execute("SELECT 1 FROM tagihan WHERE id_pos = ? LIMIT 1", (id_pos,))
+    result = cursor.fetchone()
+    # Jika fetchone() mengembalikan sesuatu (bukan None), berarti data digunakan
+    return result is not None
+
+# Tambahkan dua fungsi ini ke utils/db_functions.py
+
+def get_tagihan_by_kelas_and_pos(conn, id_kelas, id_pos):
+    """Mengambil detail tagihan yang baru dibuat untuk kelas dan pos tertentu."""
+    sql = """
+        SELECT s.nama_lengkap, p.nama_pos, t.bulan, t.nominal_tagihan
+        FROM tagihan t
+        JOIN siswa s ON t.nis_siswa = s.nis
+        JOIN pos_pembayaran p ON t.id_pos = p.id
+        WHERE s.id_kelas = ? AND t.id_pos = ?
+        ORDER BY s.nama_lengkap
+    """
+    cursor = conn.cursor()
+    cursor.execute(sql, (id_kelas, id_pos))
+    return cursor.fetchall()
+
+def get_all_tagihan_by_kelas(conn, id_kelas):
+    """Mengambil semua tagihan (lunas/belum) untuk semua siswa di satu kelas."""
+    sql = """
+        SELECT s.nama_lengkap, s.nis, p.nama_pos, t.bulan, t.nominal_tagihan, t.sisa_tagihan, t.status
+        FROM tagihan t
+        JOIN siswa s ON t.nis_siswa = s.nis
+        JOIN pos_pembayaran p ON t.id_pos = p.id
+        WHERE s.id_kelas = ?
+        ORDER BY s.nama_lengkap, p.nama_pos
+    """
+    cursor = conn.cursor()
+    cursor.execute(sql, (id_kelas,))
+    return cursor.fetchall()
+
+def get_broadcast_data(conn, list_of_id_pos, angkatan=None, kelas_id=None, search_term=None):
+    """
+    Mengambil data untuk broadcast tagihan dari BEBERAPA jenis pembayaran sekaligus
+    dengan filter lengkap, termasuk pencarian nama/NIS.
+    """
+    cursor = conn.cursor()
+    
+    if not list_of_id_pos:
+        return []
+
+    placeholders = ', '.join('?' * len(list_of_id_pos))
+    params = list_of_id_pos
+    
+    sql = f"""
+        SELECT
+            s.nama_lengkap, s.no_wa_ortu, k.nama_kelas, p.nama_pos, t.sisa_tagihan
+        FROM tagihan t
+        JOIN siswa s ON t.nis_siswa = s.nis
+        JOIN pos_pembayaran p ON t.id_pos = p.id
+        LEFT JOIN kelas k ON s.id_kelas = k.id
+        WHERE 
+            t.id_pos IN ({placeholders})
+            AND t.sisa_tagihan > 0
+            AND s.no_wa_ortu IS NOT NULL AND s.no_wa_ortu != ''
+    """
+
+    if angkatan:
+        sql += " AND k.angkatan = ?"
+        params.append(angkatan)
+    
+    if kelas_id:
+        sql += " AND s.id_kelas = ?"
+        params.append(kelas_id)
+        
+    # --- TAMBAHAN: Logika untuk pencarian nama/NIS ---
+    if search_term:
+        sql += " AND (s.nama_lengkap LIKE ? OR s.nis LIKE ?)"
+        params.extend([f"%{search_term}%", f"%{search_term}%"])
+        
+    sql += " GROUP BY s.nis, p.id ORDER BY k.angkatan, k.nama_kelas, s.nama_lengkap"
+    
+    cursor.execute(sql, tuple(params))
+    return cursor.fetchall()
 # --- Fungsi-fungsi untuk Transaksi (dengan perbaikan) ---
 
 def proses_pembayaran(conn, nis_siswa, petugas, list_pembayaran):
@@ -411,12 +525,19 @@ def get_semua_transaksi(conn, search_term=None):
     return cursor.fetchall()
 
 def get_detail_by_transaksi(conn, id_transaksi):
+    """
+    Mengambil rincian item dari sebuah transaksi.
+    Menggunakan LEFT JOIN agar lebih kuat terhadap data yang mungkin hilang.
+    """
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT p.nama_pos, t.bulan, dt.jumlah_bayar
+        SELECT 
+            p.nama_pos, 
+            t.bulan, 
+            dt.jumlah_bayar
         FROM detail_transaksi dt
-        JOIN tagihan t ON dt.id_tagihan = t.id
-        JOIN pos_pembayaran p ON t.id_pos = p.id
+        LEFT JOIN tagihan t ON dt.id_tagihan = t.id
+        LEFT JOIN pos_pembayaran p ON t.id_pos = p.id
         WHERE dt.id_transaksi = ?
     """, (id_transaksi,))
     return cursor.fetchall()

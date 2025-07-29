@@ -1077,7 +1077,7 @@ def show_kelulusan():
 
 def show_cetak_bukti_pembayaran():
     st.subheader("📄 Cetak Ulang Bukti Pembayaran")
-    st.info("Gunakan filter untuk mencari transaksi, lalu centang satu atau beberapa transaksi dari tabel untuk dicetak.")
+    st.info("Gunakan filter untuk mencari transaksi, lalu centang satu atau beberapa data dari tabel untuk dicetak.")
 
     config = load_config()
 
@@ -1089,199 +1089,140 @@ def show_cetak_bukti_pembayaran():
             selected_angkatan_filter = st.selectbox("Filter Angkatan", options=list_angkatan)
         with c2:
             list_kelas = get_semua_kelas_cached()
-            kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
-            selected_kelas_filter_nama = st.selectbox("Filter per Kelas", options=["Semua Kelas"] + list(kelas_dict.keys()))
+            kelas_dict = {f"{angkatan} - {nama}": id_kls for id_kls, angkatan, nama, thn in list_kelas}
+            selected_kelas_nama = st.selectbox("Filter per Kelas", options=["Semua Kelas"] + list(kelas_dict.keys()))
         with c3:
-            search_term = st.text_input("Cari Nama atau NIS", placeholder="Ketik untuk mencari...")
+            search_term = st.text_input("Cari Nama Siswa atau NIS")
 
-    id_kelas_filter = None if selected_kelas_filter_nama == "Semua Kelas" else kelas_dict.get(selected_kelas_filter_nama)
+    id_kelas_filter = None if selected_kelas_nama == "Semua Kelas" else kelas_dict.get(selected_kelas_nama)
     angkatan_filter = None if selected_angkatan_filter == "Semua Angkatan" else selected_angkatan_filter
     
     st.markdown("---")
 
-    col1, col2 = st.columns([0.6, 0.4])
+    # --- Layout Utama 2 Kolom ---
+    table_col, preview_col = st.columns([0.6, 0.4], gap="large")
 
-    with col1:
-        st.markdown("#### Hasil Pencarian Transaksi")
-        with st.spinner("Mencari data transaksi..."):
-            conn = db.create_connection()
-            filtered_trans = db.get_filtered_transaksi(conn, search_term=search_term, kelas_id=id_kelas_filter, angkatan=angkatan_filter)
-            conn.close()
+    with table_col:
+        st.markdown("#### Daftar Transaksi")
+        conn = db.create_connection()
+        filtered_trans = db.get_filtered_transaksi(conn, search_term=search_term, kelas_id=id_kelas_filter, angkatan=angkatan_filter)
+        conn.close()
 
         if not filtered_trans:
             st.warning("Tidak ada data transaksi yang cocok dengan filter Anda.")
             return
         
-        # --- Mengganti st.dataframe dengan st.data_editor ---
         df_trans = pd.DataFrame(filtered_trans, columns=['ID', 'Tanggal', 'NIS', 'Nama Siswa', 'Total Bayar', 'Kelas', 'Angkatan'])
         df_trans['Tanggal'] = pd.to_datetime(df_trans['Tanggal']).dt.strftime('%d-%m-%Y %H:%M')
-        
-        # Tambah kolom 'Pilih' untuk checkbox
         df_trans.insert(0, "Pilih", False)
         
         edited_df = st.data_editor(
             df_trans[['Pilih', 'ID', 'Tanggal', 'Nama Siswa', 'Total Bayar']],
-            key="cetak_editor",
-            hide_index=True,
-            use_container_width=True,
-            height=400,
+            key="cetak_editor", hide_index=True, use_container_width=True, height=500,
             column_config={"Pilih": st.column_config.CheckboxColumn(required=True)},
             disabled=['ID', 'Tanggal', 'Nama Siswa', 'Total Bayar']
         )
         
         transaksi_terpilih_df = edited_df[edited_df['Pilih']]
 
-    with col2:
+    with preview_col:
         st.markdown("#### Pratinjau & Aksi")
-        
-        # --- Logika Tampilan Pratinjau atau Ringkasan ---
-        if len(transaksi_terpilih_df) == 1:
-            # Jika hanya satu yang dipilih, tampilkan pratinjau nota
-            selected_trans_id = transaksi_terpilih_df['ID'].iloc[0]
-            with st.spinner("Memuat detail nota..."):
-                # (Kode untuk membuat receipt_html tunggal tetap sama seperti sebelumnya)
-                # ... (Ini disingkat agar tidak terlalu panjang, tapi logikanya sama)
-                conn = db.create_connection()
-                trans_info_tuple = db.get_transaksi_by_id(conn, selected_trans_id)
-                item_pembayaran_tuple = db.get_detail_by_transaksi(conn, selected_trans_id)
-                conn.close()
-                # Di sini Anda akan membangun receipt_html seperti di kode Anda sebelumnya
-                # Untuk keringkasan, kita akan anggap receipt_html sudah dibuat
-                receipt_html = f"<div>Pratinjau untuk Transaksi ID: {selected_trans_id}</div>" # Placeholder
-                with st.container(border=True):
-                    # Anda akan memanggil fungsi pembuatan nota lengkap di sini
-                    st.components.v1.html("<i>Pratinjau nota lengkap akan tampil di sini...</i>", height=600)
 
+        # Logika untuk membuat HTML satu nota
+        def generate_receipt_html_content(trans_id):
+            conn = db.create_connection()
+            trans_info_tuple = db.get_transaksi_by_id(conn, trans_id)
+            item_pembayaran_tuple = db.get_detail_by_transaksi(conn, trans_id)
+            conn.close()
+
+            if not trans_info_tuple: return "<div>Data transaksi tidak ditemukan.</div>"
+
+            trans_info = {'no_trans': trans_info_tuple[0], 'tanggal_trans': datetime.strptime(trans_info_tuple[1], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y'), 'nis': trans_info_tuple[2], 'nama_siswa': trans_info_tuple[3], 'kelas': trans_info_tuple[4] or "-", 'grand_total': trans_info_tuple[5], 'nama_petugas': trans_info_tuple[6]}
+            item_rows_html = "".join([f'<tr><td class="col-no">{i+1}.</td><td class="col-ket">{item[0] + (f" - {item[1]}" if item[1] else "")}</td><td class="col-jml">{item[2]:,.0f}</td></tr>' for i, item in enumerate(item_pembayaran_tuple)])
+            grand_total_formatted = f"{trans_info['grand_total']:,.0f}"
+            terbilang_text = terbilang(trans_info['grand_total'])
+            logo_base64 = ""
+            try:
+                with open(config.get("logo_path", "logo.png"), "rb") as f: logo_base64 = base64.b64encode(f.read()).decode()
+            except FileNotFoundError: pass
+
+            return f"""
+            <div class='receipt-container' id="receipt-{trans_id}">
+                <div class="header"> <img src="data:image/png;base64,{logo_base64}" alt="logo"> <div class="school-info"> <h4>{config.get('nama_lembaga')}</h4> <p>{config.get('alamat')}<br>Telp: {config.get('telp')} | Website: {config.get('website')}</p> </div> </div>
+                <div class="title">BUKTI PEMBAYARAN SISWA</div>
+                <div class="info-section"> <table> <tr><td>NO TRANS</td><td>: {trans_info['no_trans']}</td><td>NAMA SISWA</td><td>: {trans_info['nama_siswa']}</td></tr> <tr><td>TANGGAL</td><td>: {trans_info['tanggal_trans']}</td><td>KELAS</td><td>: {trans_info['kelas']}</td></tr> </table> </div>
+                <table class="payment-table"> <thead><tr><th class="col-no">No.</th><th class="col-ket">Keterangan</th><th class="col-jml">Jumlah (Rp)</th></tr></thead> <tbody>{item_rows_html}</tbody> </table>
+                <div class="summary-section"> <div class="terbilang-section"><b>Terbilang :</b><br>{terbilang_text}</div> <div class="total-section"><b>Grand Total :<br><span class="grand-total">{grand_total_formatted}</span></b></div> </div>
+                <div class="footer-section"> <div class="disclaimer">* Simpan sebagai bukti pembayaran yang SAH.</div> <div class="signature">Karanganyar, {datetime.now().strftime('%d %B %Y')}<br>Yang Menerima,<div class="name">{trans_info['nama_petugas']}</div></div> </div>
+            </div>
+            """
+
+        # Menampilkan pratinjau atau ringkasan
+        if len(transaksi_terpilih_df) == 1:
+            selected_id = transaksi_terpilih_df['ID'].iloc[0]
+            st.write(f"**Pratinjau Nota ID: {selected_id}**")
+            html_content_single = generate_receipt_html_content(selected_id)
+            st.components.v1.html(f"<style>{receipt_css()}</style>{html_content_single}", height=550, scrolling=True)
         elif len(transaksi_terpilih_df) > 1:
-            # Jika lebih dari satu, tampilkan ringkasan
             st.write(f"**{len(transaksi_terpilih_df)} transaksi dipilih:**")
-            st.dataframe(
-                transaksi_terpilih_df[['ID', 'Nama Siswa', 'Total Bayar']], 
-                use_container_width=True, 
-                hide_index=True
-            )
+            st.dataframe(transaksi_terpilih_df[['ID', 'Nama Siswa', 'Total Bayar']], hide_index=True, use_container_width=True)
         else:
             st.info("Centang transaksi di tabel kiri untuk melihat pratinjau atau mencetak.")
 
-        # --- Tombol Aksi Massal ---
+        # Tombol Aksi Cetak
         if not transaksi_terpilih_df.empty:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(f"📄 Cetak {len(transaksi_terpilih_df)} Bukti Pembayaran yang Dipilih", type="primary", use_container_width=True):
-                
-                # --- Logika Pembuatan PDF Massal ---
-                list_of_html_receipts = []
-                conn = db.create_connection()
-                
+            if st.button(f"🖨️ Cetak {len(transaksi_terpilih_df)} Bukti Terpilih", type="primary", use_container_width=True):
+                all_receipts_html = ""
                 with st.spinner("Mempersiapkan semua nota..."):
                     for trans_id in transaksi_terpilih_df['ID']:
-                        # Anda perlu fungsi baru untuk membuat HANYA bagian isi HTML dari satu nota
-                        # Mari kita asumsikan Anda punya fungsi `buat_isi_nota_html(conn, trans_id, config)`
-                        # Untuk contoh ini, kita gunakan placeholder
-                        isi_nota = f"""
-                        <div class='receipt-container' style='page-break-after: always;'>
-                            <h2>BUKTI PEMBAYARAN - ID: {trans_id}</h2>
-                            <p>Ini adalah konten untuk nota transaksi {trans_id}.</p>
-                        </div>
-                        """
-                        list_of_html_receipts.append(isi_nota)
-                
-                conn.close()
-                
-                # Gabungkan semua HTML nota menjadi satu dokumen besar
-                all_receipts_html_content = "".join(list_of_html_receipts)
-                
-    # --- BAGIAN CETAK PERORANGAN ---
-    st.markdown(f"#### Ditemukan {len(filtered_trans)} transaksi. Silakan pilih satu untuk dicetak.")
-    trans_options = {f"ID: {t[0]} | {t[3]} (Rp {t[4]:,.0f}) | {t[1].split(' ')[0]}": t[0] for t in filtered_trans}
-    selected_trans_label = st.selectbox("Pilih Transaksi", options=trans_options.keys())
+                        all_receipts_html += generate_receipt_html_content(trans_id)
 
-    if st.button("📄 Tampilkan Pratinjau & Cetak"):
-        if selected_trans_label:
-            selected_trans_id = trans_options[selected_trans_label]
-
-            conn = db.create_connection()
-            trans_info_tuple = db.get_transaksi_by_id(conn, selected_trans_id)
-            item_pembayaran_tuple = db.get_detail_by_transaksi(conn, selected_trans_id)
-            conn.close()
-
-            if trans_info_tuple:
-                # Proses data transaksi
-                trans_info = {
-                    'no_trans': trans_info_tuple[0],
-                    'tanggal_trans': datetime.strptime(trans_info_tuple[1], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y'),
-                    'jam_cetak': datetime.strptime(trans_info_tuple[1], '%Y-%m-%d %H:%M:%S').strftime('%H:%M:%S'),
-                    'nis': trans_info_tuple[2], 'nama_siswa': trans_info_tuple[3],
-                    'kelas': trans_info_tuple[4] or "Tidak ada kelas", 'grand_total': trans_info_tuple[5],
-                    'nama_petugas': trans_info_tuple[6]
-                }
-                
-                # Buat baris-baris item pembayaran
-                item_rows_html = ""
-                for i, item in enumerate(item_pembayaran_tuple):
-                    keterangan = f"{item[0]}" + (f" - {item[1]}" if item[1] else "")
-                    jumlah_formatted = f"{item[2]:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    item_rows_html += f'<tr><td class="col-no">{i+1}.</td><td class="col-ket">{keterangan}</td><td class="col-jml">{jumlah_formatted}</td></tr>'
-
-                grand_total_formatted = f"{trans_info['grand_total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                terbilang_text = terbilang(trans_info['grand_total'])
-                
-                logo_base64 = ""
-                logo_path = config.get("logo_path", "logo.png")
-                try:
-                    with open(logo_path, "rb") as image_file:
-                        logo_base64 = base64.b64encode(image_file.read()).decode()
-                except FileNotFoundError:
-                    st.warning(f"File logo '{logo_path}' tidak ditemukan.")
-
-                receipt_html = f"""
-                <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-                <style>
-                    body {{ font-family: 'Times New Roman', Times, serif; font-size: 10pt; color: #000; }}
-                    .receipt-container {{ width: 14.8cm; height: 21cm; padding: 1cm; margin: auto; background: #fff; box-sizing: border-box; overflow: hidden; }}
-                    .header {{ display: flex; align-items: flex-start; border-bottom: 2px solid #000; padding-bottom: 4px; }}
-                    .header img {{ width: 50px; height: auto; margin-right: 10px; }}
-                    .header .school-info h4 {{ font-size: 13pt; font-weight: bold; margin:0; }}
-                    .header .school-info p {{ font-size: 8pt; margin: 0; }}
-                    .title {{ text-align: center; font-weight: bold; font-size: 12pt; margin: 4px 0; border-bottom: 2px solid #000; padding-bottom: 4px;}}
-                    .info-section table {{ width: 100%; margin-top: 8px; font-size: 9pt; }}
-                    .info-section td {{ padding: 1px 4px; }}
-                    .payment-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
-                    .payment-table th, .payment-table td {{ padding: 4px 6px; font-size: 9pt; }}
-                    .payment-table th {{ border-bottom: 1px solid #000; text-align: left; }}
-                    .col-no {{ width: 5%; }} .col-ket {{ width: 70%; }} .col-jml {{ width: 25%; text-align: right; }}
-                    .summary-section {{ border-top: 1px solid #000; padding-top: 8px; margin-top: 4px; display: flex; justify-content: space-between; font-size: 9pt;}}
-                    .terbilang-section {{ font-style: italic; max-width: 60%; }}
-                    .total-section {{ text-align: right; }}
-                    .total-section .grand-total {{ font-weight: bold; font-size: 12pt; }}
-                    .footer-section {{ border-top: 1px solid #000; padding-top: 8px; margin-top: 12px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 9pt; }}
-                    .disclaimer {{ font-size: 8pt; max-width: 50%; }}
-                    .signature {{ text-align: center; }}
-                    .signature .name {{ font-weight: bold; text-decoration: underline; margin-top: 40px; }}
-                    .download-button {{ display: block; text-align: center; width: 200px; margin: 20px auto; padding: 12px 20px; font-size: 14pt; color: white; background-color: #28a745; border: none; border-radius: 5px; cursor: pointer; font-family: 'Segoe UI', sans-serif; font-weight: bold; }}
-                    @media print {{ .no-print {{ display: none !important; }} }}
-                </style>
-                </head><body>
-                <div id="receipt" class="receipt-container">
-                    <div class="header"> <img src="data:image/png;base64,{logo_base64}" alt="logo"> <div class="school-info"> <h4>{config.get('nama_lembaga')}</h4> <p>{config.get('alamat')}</p> <p>Telp: {config.get('telp')} | Website: {config.get('website')}</p> </div> </div>
-                    <div class="title">BUKTI PEMBAYARAN SISWA</div>
-                    <div class="info-section"> <table> <tr><td>NO TRANS</td><td>: {trans_info['no_trans']}</td><td>NIS</td><td>: {trans_info['nis']}</td></tr> <tr><td>TANGGAL</td><td>: {trans_info['tanggal_trans']}</td><td>NAMA SISWA</td><td>: {trans_info['nama_siswa']}</td></tr> <tr><td>JAM CETAK</td><td>: {trans_info['jam_cetak']}</td><td>KELAS</td><td>: {trans_info['kelas']}</td></tr> </table> </div>
-                    <table class="payment-table"> <thead><tr><th class="col-no">No.</th><th class="col-ket">Keterangan Pembayaran</th><th class="col-jml">Jumlah (Rp.)</th></tr></thead> <tbody>{item_rows_html}</tbody> </table>
-                    <div class="summary-section"> <div class="terbilang-section"><b>Terbilang :</b><br>{terbilang_text}</div> <div class="total-section"><b>Grand Total :</b><br><span class="grand-total">{grand_total_formatted}</span></div> </div>
-                    <div class="footer-section"> <div class="disclaimer"> <b>*</b> Simpanlah sebagai bukti pembayaran yang SAH.<br> <b>-</b> Uang yang sudah dibayarkan tidak dapat diminta kembali. </div> <div class="signature"> Karanganyar, {datetime.now().strftime('%d %B %Y')}<br> Yang Menerima, <div class="name">{trans_info['nama_petugas']}</div> </div> </div>
+                # Menampilkan dialog cetak
+                st.session_state.show_print_dialog = True
+                st.session_state.printable_html = all_receipts_html
+    
+    if st.session_state.get("show_print_dialog", False):
+        st.dialog("Jendela Cetak")
+        st.components.v1.html(f"""
+            <html><head><title>Cetak Bukti Pembayaran</title><style>{receipt_css()}</style></head>
+            <body style="background-color: #f0f2f6;">
+                {st.session_state.printable_html}
+                <div class="no-print" style="text-align:center; padding: 20px;">
+                    <button onclick="window.print()" style="padding: 12px 25px; font-size: 16px; color: white; background-color: #28a745; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Cetak Sekarang</button>
                 </div>
-                <div class="no-print"> <button onclick="generatePDF()" class="download-button">⬇️ Unduh PDF</button> </div>
-                <script>
-                    function generatePDF() {{
-                        const element = document.getElementById('receipt');
-                        const opt = {{ margin: 0, filename: 'bukti_pembayaran_{trans_info['no_trans']}.pdf', image: {{ type: 'jpeg', quality: 1.0 }}, html2canvas: {{ scale: 3, useCORS: true }} }};
-                        html2pdf().from(element).set(opt).save();
-                    }}
-                </script>
-                </body></html>"""
-                
-                st.markdown("---")
-                st.write("**Pratinjau Nota (Ukuran A5):**")
-                st.components.v1.html(receipt_html, height=800, scrolling=True)
+            </body></html>
+        """, height=600, scrolling=True)
+        if st.button("Tutup Jendela Cetak"):
+            st.session_state.show_print_dialog = False
+            st.rerun()
+
+def receipt_css():
+    """Mengembalikan string CSS untuk nota."""
+    return """
+        body { font-family: 'Arial', sans-serif; font-size: 10pt; color: #000; }
+        .receipt-container { width: 100%; max-width: 800px; padding: 20px; margin: 20px auto; background: #fff; box-sizing: border-box; border: 1px solid #ccc; page-break-after: always; }
+        .header { display: flex; align-items: flex-start; border-bottom: 2px solid #000; padding-bottom: 8px; }
+        .header img { width: 60px; height: auto; margin-right: 15px; }
+        .header .school-info h4 { font-size: 14pt; font-weight: bold; margin:0; }
+        .header .school-info p { font-size: 9pt; margin: 0; line-height: 1.4; }
+        .title { text-align: center; font-weight: bold; font-size: 12pt; margin: 8px 0; border-bottom: 2px solid #000; padding-bottom: 8px;}
+        .info-section table { width: 100%; margin-top: 10px; font-size: 10pt; }
+        .info-section td { padding: 2px 4px; }
+        .payment-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .payment-table th, .payment-table td { padding: 6px; font-size: 10pt; border: 1px solid #555; }
+        .payment-table th { background-color: #e9ecef; text-align: center; }
+        .col-no { width: 5%; text-align:center; } .col-ket { width: 70%; } .col-jml { width: 25%; text-align: right; }
+        .summary-section { border-top: 1px solid #000; padding-top: 10px; margin-top: 8px; display: flex; justify-content: space-between; font-size: 10pt;}
+        .terbilang-section { font-style: italic; max-width: 60%; }
+        .total-section { text-align: right; }
+        .total-section .grand-total { font-weight: bold; font-size: 13pt; }
+        .footer-section { border-top: 1px solid #000; padding-top: 10px; margin-top: 15px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 9pt; }
+        .disclaimer { font-size: 8pt; max-width: 50%; }
+        .signature { text-align: center; }
+        .signature .name { font-weight: bold; text-decoration: underline; margin-top: 50px; }
+        @media print { .no-print { display: none !important; } .receipt-container { border: none; margin: 0; box-shadow: none; } }
+    """
             
 # --- FUNGSI RENDER UTAMA MODUL (TELAH DIMODIFIKASI) ---
 def render():
@@ -1354,7 +1295,7 @@ def render():
 
             /* Tombol Menu */
             .stButton > button {
-                background-color: #007BFF !important; /* Warna latar biru */
+            background-color: #007BFF !important; /* Warna latar biru */
             color: white !important;               /* Warna teks putih */
             font-weight: bold;
             border-radius: 8px !important;

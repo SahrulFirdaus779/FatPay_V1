@@ -5,6 +5,7 @@
 import sqlite3
 import bcrypt
 from datetime import datetime
+import pandas as pd
 
 # --- Fungsi Koneksi dan Setup Database ---
 
@@ -160,6 +161,34 @@ def hapus_user(conn, username):
     cursor.execute(sql, (username,))
     conn.commit()
     return cursor.rowcount > 0
+
+def get_transactions_for_preview(conn):
+    """
+    Mengambil semua data transaksi dari koneksi database yang diberikan
+    untuk ditampilkan dalam pratinjau.
+    Mengembalikan data sebagai Pandas DataFrame.
+    """
+    query = """
+    SELECT
+        t.id AS id_transaksi,
+        t.tanggal,
+        s.nama AS nama_siswa,
+        s.nis,
+        SUM(td.jumlah_bayar) AS total_bayar
+    FROM transaksi t
+    JOIN siswa s ON t.nis_siswa = s.nis
+    JOIN transaksi_detail td ON t.id = td.id_transaksi
+    GROUP BY t.id, t.tanggal, s.nama, s.nis
+    ORDER BY t.tanggal DESC;
+    """
+    try:
+        df = pd.read_sql_query(query, conn)
+        return df
+    except Exception as e:
+        # Mengembalikan DataFrame kosong jika ada error (misal: tabel tidak ada)
+        print(f"Error saat pratinjau data: {e}")
+        return pd.DataFrame()
+
 
 # --- Fungsi-fungsi untuk Kelas (dengan Angkatan) ---
 
@@ -725,6 +754,245 @@ def get_filtered_transaksi(conn, search_term=None, kelas_id=None, angkatan=None)
     cur.execute(query, tuple(params))
     return cur.fetchall()
 
+def get_transactions_for_preview(conn):
+    """
+    (VERSI FINAL) Mengambil data transaksi untuk pratinjau dengan nama tabel dan kolom yang sudah benar.
+    """
+    # Query ini telah diperbaiki agar sesuai dengan skema database Anda.
+    query = """
+    SELECT
+        t.id AS id_transaksi,
+        t.tanggal,
+        s.nama_lengkap AS nama_siswa, 
+        s.nis,
+        SUM(td.jumlah_bayar) AS total_bayar
+    FROM transaksi t
+    JOIN siswa s ON t.nis_siswa = s.nis
+    JOIN detail_transaksi td ON t.id = td.id_transaksi 
+    GROUP BY t.id, t.tanggal, s.nama_lengkap, s.nis
+    ORDER BY t.tanggal DESC;
+    """
+    try:
+        df = pd.read_sql_query(query, conn)
+        return df
+    except Exception as e:
+        print(f"Error saat pratinjau data: {e}")
+        return pd.DataFrame()
+
+def export_transactions_to_new_db(main_db_path, new_db_path, start_date, end_date):
+    """
+    Mengekspor data transaksi dalam rentang tanggal tertentu dari database utama
+    ke sebuah file database SQLite baru.
+    """
+    try:
+        conn_main = sqlite3.connect(main_db_path)
+        query_transaksi = "SELECT * FROM transaksi WHERE DATE(tanggal) BETWEEN ? AND ?"
+        df_transaksi = pd.read_sql_query(query_transaksi, conn_main, params=(start_date, end_date))
+
+        if df_transaksi.empty:
+            conn_main.close()
+            return {'success': True, 'count': 0, 'message': 'Tidak ada transaksi ditemukan.'}
+
+        conn_new = sqlite3.connect(new_db_path)
+        list_id_transaksi = df_transaksi['id'].tolist()
+        list_nis_siswa = df_transaksi['nis_siswa'].unique().tolist()
+        placeholders_trx = ','.join('?' for _ in list_id_transaksi)
+        placeholders_nis = ','.join('?' for _ in list_nis_siswa)
+
+        df_detail = pd.read_sql_query(f"SELECT * FROM detail_transaksi WHERE id_transaksi IN ({placeholders_trx})", conn_main, params=list_id_transaksi)
+        df_siswa = pd.read_sql_query(f"SELECT * FROM siswa WHERE nis IN ({placeholders_nis})", conn_main, params=list_nis_siswa)
+
+        df_users = pd.read_sql_query("SELECT * FROM users", conn_main)
+        df_kelas = pd.read_sql_query("SELECT * FROM kelas", conn_main)
+        df_pos = pd.read_sql_query("SELECT * FROM pos_pembayaran", conn_main)
+        df_tagihan = pd.read_sql_query(f"SELECT * FROM tagihan WHERE nis_siswa IN ({placeholders_nis})", conn_main, params=list_nis_siswa)
+
+        df_users.to_sql('users', conn_new, if_exists='replace', index=False)
+        df_kelas.to_sql('kelas', conn_new, if_exists='replace', index=False)
+        df_pos.to_sql('pos_pembayaran', conn_new, if_exists='replace', index=False)
+        df_tagihan.to_sql('tagihan', conn_new, if_exists='replace', index=False)
+        df_siswa.to_sql('siswa', conn_new, if_exists='replace', index=False)
+        df_transaksi.to_sql('transaksi', conn_new, if_exists='replace', index=False)
+        df_detail.to_sql('detail_transaksi', conn_new, if_exists='replace', index=False)
+        
+        conn_main.close()
+        conn_new.close()
+        
+        return {'success': True, 'count': len(df_transaksi), 'message': 'Ekspor berhasil.'}
+
+    except Exception as e:
+        error_message = f"Gagal mengekspor transaksi: {e}"
+        print(error_message)
+        return {'success': False, 'count': 0, 'message': error_message}
+    
+# Tambahkan/Ganti fungsi ini di utils/db_functions.py
+
+def merge_transactions_from_db(main_conn, source_db_path):
+    """
+    Menggabungkan data dari database sumber ke database utama dengan logika cerdas.
+    - Melewati transaksi yang sudah ada.
+    - Menambahkan siswa baru jika belum ada.
+    - Mengembalikan statistik proses.
+    """
+    # 1. Inisialisasi statistik
+    stats = {'added': 0, 'skipped': 0, 'errors': 0}
+    
+    # Koneksi ke database sumber (file yang di-upload)
+    source_conn = sqlite3.connect(source_db_path)
+    
+    main_cursor = main_conn.cursor()
+    source_cursor = source_conn.cursor()
+
+    try:
+        # 2. Ambil semua ID yang sudah ada di DB utama untuk perbandingan cepat
+        main_cursor.execute("SELECT id FROM transaksi")
+        existing_trx_ids = {row[0] for row in main_cursor.fetchall()}
+        
+        main_cursor.execute("SELECT nis FROM siswa")
+        existing_siswa_nis = {row[0] for row in main_cursor.fetchall()}
+
+        # 3. Ambil semua data relevan dari DB sumber
+        source_siswa = source_cursor.execute("SELECT * FROM siswa").fetchall()
+        source_transaksi = source_cursor.execute("SELECT * FROM transaksi").fetchall()
+        source_detail = source_cursor.execute("SELECT * FROM detail_transaksi").fetchall()
+
+        # Mulai transaksi di DB utama
+        main_cursor.execute("BEGIN TRANSACTION")
+
+        # 4. Proses Siswa: Tambahkan siswa jika belum ada di DB utama
+        for siswa in source_siswa:
+            nis = siswa[0] # Asumsi NIS adalah kolom pertama
+            if nis not in existing_siswa_nis:
+                # Kolom harus sesuai dengan tabel siswa Anda
+                main_cursor.execute("INSERT INTO siswa (nis, nik_siswa, nisn, nama_lengkap, jenis_kelamin, no_wa_ortu, id_kelas, status) VALUES (?,?,?,?,?,?,?,?)", siswa)
+                existing_siswa_nis.add(nis) # Tambahkan ke set agar tidak dicek lagi
+
+        # 5. Proses Transaksi: Tambahkan hanya transaksi yang belum ada
+        for trx in source_transaksi:
+            trx_id = trx[0] # Asumsi ID adalah kolom pertama
+            
+            if trx_id in existing_trx_ids:
+                stats['skipped'] += 1
+                continue # Lanjut ke transaksi berikutnya
+
+            # Cek apakah siswa untuk transaksi ini ada di DB utama
+            nis_siswa = trx[2] # Asumsi nis_siswa adalah kolom ketiga
+            if nis_siswa not in existing_siswa_nis:
+                stats['errors'] += 1
+                continue # Siswa tidak ditemukan, lewati transaksi
+
+            # Jika semua aman, masukkan transaksi baru
+            # Kolom harus sesuai dengan tabel transaksi Anda
+            main_cursor.execute("INSERT INTO transaksi (id, tanggal, nis_siswa, total_bayar, petugas) VALUES (?,?,?,?,?)", trx)
+            
+            # Cari dan masukkan detail transaksinya
+            details_for_this_trx = [d for d in source_detail if d[1] == trx_id]
+            for detail in details_for_this_trx:
+                # Kolom harus sesuai dengan tabel detail_transaksi Anda
+                main_cursor.execute("INSERT INTO detail_transaksi (id, id_transaksi, id_tagihan, jumlah_bayar) VALUES (?,?,?,?)", detail)
+
+            stats['added'] += 1
+
+        # Jika semua loop berhasil, simpan perubahan
+        main_conn.commit()
+
+    except sqlite3.Error as e:
+        # Jika terjadi error apapun selama proses, batalkan semua perubahan
+        main_conn.rollback()
+        print(f"Merge Gagal: {e}")
+        # Kita bisa mengembalikan error spesifik jika perlu
+        raise e 
+        
+    finally:
+        # Tutup koneksi ke DB sumber
+        source_conn.close()
+
+    return stats
+
+def add_default_user(conn):
+    """
+    Menambahkan user default 'admin' ke database.
+    Fungsi ini dipanggil setelah database direset.
+    """
+    try:
+        # Gunakan fungsi tambah_user yang sudah ada
+        # dengan kredensial default: admin/admin
+        tambah_user(conn, "admin", "admin", "admin")
+        print("Default user 'admin' berhasil ditambahkan.")
+        return True
+    except Exception as e:
+        print(f"Gagal menambahkan default user: {e}")
+        return False
+
+def get_laporan_kas_umum(conn, tanggal_mulai, tanggal_sampai, angkatan=None, id_pos=None, kelas_id=None, search_term=None):
+    """Mengambil data transaksi dengan filter lengkap untuk laporan kas umum,
+    termasuk NIS Siswa, Nama Siswa, Angkatan, dan Kelas.
+    """
+    cursor = conn.cursor()
+    
+    params = [tanggal_mulai, tanggal_sampai]
+    
+    query = """
+    SELECT
+        t.id,                  -- No. Bukti
+        t.tanggal,             -- Tanggal
+        s.nis as nis_siswa,    -- NIS Siswa
+        s.nama_lengkap as nama_siswa, -- Nama Siswa
+        k.angkatan,            -- Angkatan
+        k.nama_kelas,          -- Kelas
+        p.nama_pos as jenis_pos,
+        'Pembayaran ' || p.nama_pos || ' oleh ' || s.nama_lengkap AS uraian,
+        t.total_bayar AS pemasukan
+    FROM transaksi t
+    JOIN siswa s ON t.nis_siswa = s.nis
+    JOIN kelas k ON s.id_kelas = k.id
+    JOIN (
+        SELECT dt.id_transaksi, MIN(tgh.id_pos) as id_pos
+        FROM detail_transaksi dt
+        JOIN tagihan tgh ON dt.id_tagihan = tgh.id
+        GROUP BY dt.id_transaksi
+    ) AS detail ON t.id = detail.id_transaksi
+    JOIN pos_pembayaran p ON detail.id_pos = p.id
+    WHERE DATE(t.tanggal) BETWEEN ? AND ?
+    """
+    
+    if angkatan:
+        query += " AND k.angkatan = ?"
+        params.append(angkatan)
+    
+    if id_pos:
+        query += " AND p.id = ?"
+        params.append(id_pos)
+    
+    if kelas_id:
+        query += " AND s.id_kelas = ?"
+        params.append(kelas_id)
+        
+    if search_term:
+        query += " AND (s.nama_lengkap LIKE ? OR s.nis LIKE ?)"
+        params.extend([f"%{search_term}%", f"%{search_term}%"])
+        
+    query += " ORDER BY t.tanggal"
+    
+    cursor.execute(query, tuple(params))
+    return cursor.fetchall()
+
+
+def get_rekap_saldo_per_pos(conn):
+    """Menghitung total pemasukan untuk setiap jenis POS pembayaran."""
+    cursor = conn.cursor()
+    query = """
+        SELECT
+            p.nama_pos,
+            SUM(dt.jumlah_bayar) as total_diterima
+        FROM detail_transaksi dt
+        JOIN tagihan t ON dt.id_tagihan = t.id
+        JOIN pos_pembayaran p ON t.id_pos = p.id
+        GROUP BY p.nama_pos
+        ORDER BY p.id
+    """
+    cursor.execute(query)
+    return cursor.fetchall()
 
 # --- Fungsi-fungsi untuk Dasbor ---
 
@@ -746,3 +1014,111 @@ def get_pemasukan_hari_ini(conn):
     cursor.execute("SELECT SUM(total_bayar) FROM transaksi WHERE DATE(tanggal) = ?", (today,))
     result = cursor.fetchone()
     return result[0] if result and result[0] is not None else 0
+
+
+# --- FUNGSI-FUNGSI BARU UNTUK DASHBOARD INTERAKTIF ---
+# Tambahkan/Ganti kode ini di akhir file db_functions.py Anda
+
+def get_kpi_data(conn, start_date, end_date, angkatan=None, kelas_id=None):
+    """Mengambil data KPI utama dengan filter lengkap."""
+    cursor = conn.cursor()
+    
+    # Base queries
+    pendapatan_query = "SELECT SUM(total_bayar) FROM transaksi WHERE DATE(tanggal) BETWEEN ? AND ?"
+    tunggakan_query = "SELECT SUM(sisa_tagihan) FROM tagihan WHERE status = 'Belum Lunas'"
+    siswa_query = "SELECT COUNT(nis) FROM siswa WHERE status = 'Aktif'"
+    
+    # Params
+    pendapatan_params = [start_date, end_date]
+    tunggakan_params = []
+    siswa_params = []
+
+    # Apply filters dynamically
+    if kelas_id:
+        pendapatan_query += " AND nis_siswa IN (SELECT nis FROM siswa WHERE id_kelas = ?)"
+        pendapatan_params.append(kelas_id)
+        tunggakan_query += " AND nis_siswa IN (SELECT nis FROM siswa WHERE id_kelas = ?)"
+        tunggakan_params.append(kelas_id)
+        siswa_query += " AND id_kelas = ?"
+        siswa_params.append(kelas_id)
+    elif angkatan:
+        pendapatan_query += " AND nis_siswa IN (SELECT nis FROM siswa WHERE id_kelas IN (SELECT id FROM kelas WHERE angkatan = ?))"
+        pendapatan_params.append(angkatan)
+        tunggakan_query += " AND nis_siswa IN (SELECT nis FROM siswa WHERE id_kelas IN (SELECT id FROM kelas WHERE angkatan = ?))"
+        tunggakan_params.append(angkatan)
+        siswa_query += " AND id_kelas IN (SELECT id FROM kelas WHERE angkatan = ?)"
+        siswa_params.append(angkatan)
+
+    # Execute queries
+    cursor.execute(pendapatan_query, tuple(pendapatan_params))
+    total_pendapatan = cursor.fetchone()[0] or 0
+    
+    cursor.execute(tunggakan_query, tuple(tunggakan_params))
+    total_tunggakan = cursor.fetchone()[0] or 0
+
+    cursor.execute(siswa_query, tuple(siswa_params))
+    total_siswa_aktif = cursor.fetchone()[0] or 0
+
+    return {
+        "total_pendapatan": total_pendapatan,
+        "total_tunggakan": total_tunggakan,
+        "total_siswa_aktif": total_siswa_aktif,
+    }
+
+def get_revenue_trend(conn, start_date, end_date, angkatan=None, kelas_id=None):
+    """Mengambil tren pendapatan harian atau bulanan dengan filter lengkap."""
+    # Menentukan agregasi berdasarkan rentang tanggal
+    day_diff = (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days
+    if day_diff > 60:
+        date_format = "SUBSTR(tanggal, 1, 7)" # Agregasi per bulan (YYYY-MM)
+    else:
+        date_format = "DATE(tanggal)" # Agregasi per hari
+
+    query = f"""
+        SELECT {date_format} as periode, SUM(t.total_bayar) as pendapatan
+        FROM transaksi t
+        LEFT JOIN siswa s ON t.nis_siswa = s.nis
+        LEFT JOIN kelas k ON s.id_kelas = k.id
+        WHERE DATE(t.tanggal) BETWEEN ? AND ?
+    """
+    params = [start_date, end_date]
+
+    if kelas_id:
+        query += " AND s.id_kelas = ?"
+        params.append(kelas_id)
+    elif angkatan:
+        query += " AND k.angkatan = ?"
+        params.append(angkatan)
+        
+    query += " GROUP BY periode ORDER BY periode ASC"
+    
+    cursor = conn.cursor()
+    cursor.execute(query, tuple(params))
+    return cursor.fetchall()
+
+def get_revenue_by_pos(conn, start_date, end_date, angkatan=None, kelas_id=None):
+    """Mengambil total pendapatan per Jenis POS dengan filter lengkap."""
+    query = """
+        SELECT p.nama_pos, SUM(dt.jumlah_bayar) as pendapatan
+        FROM detail_transaksi dt
+        JOIN transaksi t ON dt.id_transaksi = t.id
+        JOIN tagihan tag ON dt.id_tagihan = tag.id
+        JOIN pos_pembayaran p ON tag.id_pos = p.id
+        LEFT JOIN siswa s ON t.nis_siswa = s.nis
+        LEFT JOIN kelas k ON s.id_kelas = k.id
+        WHERE DATE(t.tanggal) BETWEEN ? AND ?
+    """
+    params = [start_date, end_date]
+
+    if kelas_id:
+        query += " AND s.id_kelas = ?"
+        params.append(kelas_id)
+    elif angkatan:
+        query += " AND k.angkatan = ?"
+        params.append(angkatan)
+
+    query += " GROUP BY p.nama_pos ORDER BY pendapatan DESC"
+    
+    cursor = conn.cursor()
+    cursor.execute(query, tuple(params))
+    return cursor.fetchall()

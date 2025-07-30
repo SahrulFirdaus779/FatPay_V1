@@ -108,15 +108,75 @@ def terbilang(n):
 # --- FUNGSI SUB-HALAMAN ---
 
 def show_master_kelas():
-    # ... (Kode tidak berubah)
+    """
+    Menampilkan halaman untuk manajemen data kelas (CRUD) dengan antarmuka
+    yang menggunakan tombol ikon di dalam tabel untuk aksi edit dan hapus.
+    """
     st.subheader("Master Data Kelas")
+
+    # --- Dialog untuk Edit Kelas (muncul saat tombol edit diklik) ---
+    if 'edit_kelas_id' in st.session_state:
+        list_kelas_dialog = get_semua_kelas_cached()
+        kelas_details = next((k for k in list_kelas_dialog if k[0] == st.session_state.edit_kelas_id), None)
+        
+        if kelas_details:
+            with st.dialog("✏️ Edit Data Kelas"):
+                with st.form("form_edit_kelas"):
+                    st.write(f"Anda sedang mengubah data untuk kelas **{kelas_details[2]}**.")
+                    edit_angkatan = st.text_input("Angkatan", value=kelas_details[1])
+                    edit_nama = st.text_input("Nama Kelas", value=kelas_details[2])
+                    edit_tahun = st.text_input("Tahun Ajaran", value=kelas_details[3])
+                    
+                    if st.form_submit_button("Simpan Perubahan"):
+                        with st.spinner("Memperbarui data..."):
+                            conn = db.create_connection()
+                            db.update_kelas(conn, st.session_state.edit_kelas_id, edit_angkatan, edit_nama, edit_tahun)
+                            conn.close()
+                        st.cache_data.clear()
+                        del st.session_state.edit_kelas_id
+                        st.toast("✅ Data kelas berhasil diperbarui!")
+                        st.rerun()
+
+    # --- Dialog untuk Hapus Kelas (muncul saat tombol hapus diklik) ---
+    if 'hapus_kelas_id' in st.session_state:
+        list_kelas_dialog = get_semua_kelas_cached()
+        kelas_details = next((k for k in list_kelas_dialog if k[0] == st.session_state.hapus_kelas_id), None)
+
+        if kelas_details:
+            with st.dialog("🗑️ Konfirmasi Hapus"):
+                st.error(f"Anda yakin ingin menghapus kelas **{kelas_details[2]}** secara permanen?")
+                
+                jumlah_siswa = kelas_details[4] # Indeks ke-4 adalah jumlah_siswa
+
+                if jumlah_siswa > 0:
+                    st.warning(f"Kelas ini tidak dapat dihapus karena masih terhubung dengan **{jumlah_siswa} siswa**.")
+                    if st.button("Tutup"):
+                        del st.session_state.hapus_kelas_id
+                        st.rerun()
+                else:
+                    col1, col2 = st.columns(2)
+                    if col1.button("Batalkan", use_container_width=True):
+                        del st.session_state.hapus_kelas_id
+                        st.rerun()
+                    if col2.button("Hapus Sekarang", type="primary", use_container_width=True):
+                        with st.spinner("Menghapus..."):
+                            conn = db.create_connection()
+                            db.hapus_kelas(conn, st.session_state.hapus_kelas_id)
+                            conn.close()
+                        st.cache_data.clear()
+                        del st.session_state.hapus_kelas_id
+                        st.toast(f"🗑️ Kelas {kelas_details[2]} telah dihapus.")
+                        st.rerun()
+
+    # --- Form Tambah Kelas Baru ---
     with st.form("form_tambah_kelas", clear_on_submit=True):
         st.markdown("<h6>Tambah Kelas Baru</h6>", unsafe_allow_html=True)
-        angkatan = st.text_input("Angkatan*", help="Contoh: 2024, 2025")
-        nama_kelas = st.text_input("Nama Kelas*", help="Contoh: X-A, XI-IPA-1")
-        tahun_ajaran = st.text_input("Tahun Ajaran*", help="Contoh: 2024/2025")
+        col1, col2, col3 = st.columns(3)
+        angkatan = col1.text_input("Angkatan*", help="Contoh: 2024")
+        nama_kelas = col2.text_input("Nama Kelas*", help="Contoh: X-A")
+        tahun_ajaran = col3.text_input("Tahun Ajaran*", help="Contoh: 2024/2025")
         
-        if st.form_submit_button("➕ Tambah Kelas"):
+        if st.form_submit_button("➕ Tambah Kelas", use_container_width=True):
             if angkatan and nama_kelas and tahun_ajaran:
                 with st.spinner("Menyimpan..."):
                     conn = db.create_connection()
@@ -130,48 +190,39 @@ def show_master_kelas():
                 
     st.markdown("---")
     
+    # --- Tabel Data Kelas ---
     with st.spinner("Memuat data kelas..."):
         list_kelas = get_semua_kelas_cached()
 
-    if list_kelas:
-        df_kelas = pd.DataFrame(list_kelas, columns=['ID', 'Angkatan', 'Nama Kelas', 'Tahun Ajaran'])
-        st.dataframe(df_kelas, use_container_width=True, hide_index=True)
+    if not list_kelas:
+        st.info("Belum ada data kelas. Silakan tambahkan kelas baru di atas.")
+        return
+
+    # Header Tabel
+    header_cols = st.columns([2, 3, 2, 2, 1.5])
+    header_cols[0].write("**Angkatan**")
+    header_cols[1].write("**Nama Kelas**")
+    header_cols[2].write("**Tahun Ajaran**")
+    header_cols[3].write("**Jumlah Siswa**")
+    header_cols[4].write("**Aksi**")
+
+    # Baris Data Tabel
+    for id_kelas, angkatan, nama, tahun, jumlah_siswa in list_kelas:
+        data_cols = st.columns([2, 3, 2, 2, 1.5])
+        data_cols[0].write(angkatan)
+        data_cols[1].write(nama)
+        data_cols[2].write(tahun)
+        data_cols[3].write(str(jumlah_siswa))
         
-        with st.expander("✏️ Edit atau Hapus Data Kelas"):
-            kelas_dict = {f"{angkatan} - {nama} ({tahun})": id_kelas for id_kelas, angkatan, nama, tahun in list_kelas}
-            selected_kelas_nama = st.selectbox("Pilih kelas untuk diubah/dihapus", options=kelas_dict.keys())
-            id_kelas_terpilih = kelas_dict.get(selected_kelas_nama)
+        action_col = data_cols[4].columns(2)
+        
+        if action_col[0].button("✏️", key=f"edit_{id_kelas}", help="Edit data kelas"):
+            st.session_state.edit_kelas_id = id_kelas
+            st.rerun()
             
-            if id_kelas_terpilih:
-                selected_details = next((item for item in list_kelas if item[0] == id_kelas_terpilih), None)
-                if selected_details:
-                    with st.form(f"form_edit_kelas_{id_kelas_terpilih}"):
-                        edit_angkatan = st.text_input("Angkatan Baru", value=selected_details[1])
-                        edit_nama = st.text_input("Nama Kelas Baru", value=selected_details[2])
-                        edit_tahun = st.text_input("Tahun Ajaran Baru", value=selected_details[3])
-                        
-                        if st.form_submit_button("Simpan Perubahan"):
-                            with st.spinner("Memperbarui data..."):
-                                conn = db.create_connection()
-                                db.update_kelas(conn, id_kelas_terpilih, edit_angkatan, edit_nama, edit_tahun)
-                                conn.close()
-                            st.cache_data.clear()
-                            st.toast("✅ Data kelas berhasil diperbarui!")
-                            st.rerun()
-                            
-                    if st.button(f"❌ Hapus Kelas: {selected_kelas_nama}", type="primary"):
-                        with st.spinner("Menghapus..."):
-                            conn = db.create_connection()
-                            try:
-                                if db.get_siswa_by_kelas(conn, id_kelas_terpilih):
-                                    st.error("Tidak bisa menghapus kelas karena masih ada siswa di dalamnya.")
-                                else:
-                                    db.hapus_kelas(conn, id_kelas_terpilih)
-                                    st.cache_data.clear()
-                                    st.toast(f"🗑️ Kelas {selected_kelas_nama} telah dihapus.")
-                                    st.rerun()
-                            finally:
-                                conn.close()
+        if action_col[1].button("🗑️", key=f"delete_{id_kelas}", help="Hapus data kelas"):
+            st.session_state.hapus_kelas_id = id_kelas
+            st.rerun()
 
 def show_daftar_siswa():
     # ... (Kode tidak berubah)

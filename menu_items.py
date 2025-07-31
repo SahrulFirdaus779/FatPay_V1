@@ -1,48 +1,56 @@
-# menu_items.py
-# File ini berisi konfigurasi untuk setiap item menu di dasbor.
-# Memisahkan data ini membuat kode utama lebih bersih dan mudah dikelola.
+# utils/menu_items.py
+
+"""
+Konfigurasi untuk item-item menu utama di dasbor.
+Setiap item adalah sebuah dictionary yang berisi:
+- title: Teks yang akan ditampilkan sebagai judul menu.
+- image: Path ke file ikon SVG untuk menu tersebut.
+- key: Kunci unik untuk widget tombol Streamlit.
+- target: Nama halaman/modul yang akan dituju saat menu diklik.
+- roles: Daftar peran (role) yang diizinkan untuk melihat menu ini.
+"""
 
 menu_items = [
     {
         "title": "Data Siswa",
-        "desc": "Kelola semua data master siswa, kelas, dan status akademis mereka.",
-        "image": "assets/data_siswa.svg", # Pastikan path ini benar
-        "key": "btn_data_siswa",
-        "target": "data_siswa"
+        "image": "assets/menu/data_siswa.svg",
+        "key": "modul_data_siswa",
+        "target": "data_siswa",
+        "roles": ["admin", "operator"]
     },
     {
         "title": "Pembayaran",
-        "desc": "Proses transaksi pembayaran, buat tagihan, dan lihat riwayat pembayaran.",
-        "image": "assets/pembayaran.svg", # Pastikan path ini benar
-        "key": "btn_pembayaran",
-        "target": "pembayaran"
+        "image": "assets/menu/pembayaran.svg",
+        "key": "modul_pembayaran",
+        "target": "pembayaran",
+        "roles": ["admin", "operator"]
     },
     {
-        "title": "Buku KAS",
-        "desc": "Lihat laporan kas umum dan rekapitulasi saldo per jenis pembayaran.",
-        "image": "assets/buku_kas.svg", # Pastikan path ini benar
-        "key": "btn_buku_kas",
-        "target": "buku_kas"
+        "title": "Buku Kas",
+        "image": "assets/menu/buku_kas.svg",
+        "key": "modul_buku_kas",
+        "target": "buku_kas",
+        "roles": ["admin", "operator"]
     },
     {
         "title": "Laporan",
-        "desc": "Cetak laporan pembayaran harian, bulanan, dan laporan tunggakan siswa.",
-        "image": "assets/laporan.svg", # Pastikan path ini benar
-        "key": "btn_laporan",
-        "target": "laporan"
+        "image": "assets/menu/laporan.svg",
+        "key": "modul_laporan",
+        "target": "laporan",
+        "roles": ["admin", "operator"]
     },
     {
-        "title": "Admin",
-        "desc": "Atur pengguna, profil lembaga, dan lakukan pemeliharaan database.",
-        "image": "assets/admin.svg", # Pastikan path ini benar
-        "key": "btn_admin",
-        "target": "admin"
+        "title": "Administrasi",
+        "image": "assets/menu/admin.svg",
+        "key": "modul_admin",
+        "target": "admin",
+        "roles": ["admin", "operator"] # Nantinya bisa diubah menjadi ["admin"] saja
     },
     {
-        "title": "Info",
-        "desc": "Lihat informasi dan panduan singkat mengenai penggunaan aplikasi FatPay.",
-        "image": "assets/info.svg", # Pastikan path ini benar
-        "key": "btn_info",
-        "target": "info"
-    },
+        "title": "Info Aplikasi",
+        "image": "assets/menu/info.svg",
+        "key": "modul_info",
+        "target": "info",
+        "roles": ["admin", "operator"]
+    }
 ]

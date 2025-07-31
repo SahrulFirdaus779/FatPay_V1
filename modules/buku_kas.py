@@ -100,8 +100,8 @@ def show_buku_kas_umum():
         with st.spinner("Mempersiapkan laporan kas umum..."):
             conn = db.create_connection()
             laporan_data = db.get_laporan_kas_umum(conn, tgl_mulai, tgl_sampai, id_pos=id_pos_filter,
-                                                    angkatan=angkatan_filter, kelas_id=id_kelas_filter,
-                                                    search_term=search_term)
+                                                   angkatan=angkatan_filter, kelas_id=id_kelas_filter,
+                                                   search_term=search_term)
             conn.close()
 
         if not laporan_data:
@@ -120,9 +120,12 @@ def show_buku_kas_umum():
             total_pemasukan = df['Penerimaan (Rp) Raw'].sum()
             saldo_akhir = df['Saldo Raw'].iloc[-1] if not df.empty else 0
 
-            # Format kolom angka menjadi Rupiah untuk display
-            for col_name in ['Penerimaan (Rp)', 'Pengeluaran (Rp)', 'Saldo']:
-                df[col_name] = df[col_name + ' Raw'].apply(lambda x: f"Rp {x:,.0f}")
+            # Tambahkan kolom 'Pengeluaran (Rp)' dan 'Saldo' yang sudah diformat
+            df['Pengeluaran (Rp)'] = "Rp 0"
+            df['Saldo'] = df['Saldo Raw'].apply(lambda x: f"Rp {x:,.0f}")
+            # Format kolom 'Penerimaan (Rp)' yang asli
+            df['Penerimaan (Rp)'] = df['Penerimaan (Rp) Raw'].apply(lambda x: f"Rp {x:,.0f}")
+
 
             st.markdown("---")
             st.markdown(f"**Laporan Kas Umum Periode {tgl_mulai.strftime('%d %B %Y')} s/d {tgl_sampai.strftime('%d %B %Y')}**")
@@ -212,350 +215,155 @@ def show_rekap_saldo():
     # Hapus semua logika untuk tombol download CSV
     # @st.cache_data
     # def convert_df_to_csv(df):
-    #    df_export = pd.DataFrame(rekap_data, columns=['Jenis POS', 'Saldo'])
-    #    return df_export.to_csv(index=False).encode('utf-8')
+    #  df_export = pd.DataFrame(rekap_data, columns=['Jenis POS', 'Saldo'])
+    #  return df_export.to_csv(index=False).encode('utf-8')
     # csv_data = convert_df_to_csv(df_rekap)
     # st.download_button(
-    #    label="📥 Unduh Data Rekap Saldo (CSV)",
-    #    data=csv_data,
-    #    file_name=f"rekap_saldo_per_pos_{datetime.now().strftime('%Y%m%d')}.csv",
-    #    mime="text/csv",
-    #    help="Unduh data rekapitulasi saldo ke format CSV."
+    #  label="📥 Unduh Data Rekap Saldo (CSV)",
+    #  data=csv_data,
+    #  file_name=f"rekap_saldo_per_pos_{datetime.now().strftime('%Y%m%d')}.csv",
+    #  mime="text/csv",
+    #  help="Unduh data rekapitulasi saldo ke format CSV."
     # )
 
     # Hapus juga fungsi create_rekap_saldo_pdf dan panggilannya
     # function create_rekap_saldo_pdf (dihapus)
 
-# --- Fungsi Render Utama Modul Buku Kas (tetap sama, atau disesuaikan jika ada perubahan global) ---
-def render():
-    # Pastikan path ke file SVG sudah benar
-    buku_kas_svg_base64 = get_svg_as_base64(os.path.join("assets", "buku_kas", "bukukas.svg"))
-    rekap_saldo_svg_base64 = get_svg_as_base64(os.path.join("assets", "buku_kas", "rekap_saldo.svg"))
 
-    # INJEKSI CSS BARU UNTUK UKURAN JUDUL DAN POSISI IKON (Sama seperti yang Anda berikan)
+# --- FUNGSI RENDER UTAMA MODUL (DENGAN GAYA BARU) ---
+def render():
+    """
+    Merender seluruh antarmuka untuk Modul Buku Kas dengan memuat ikon SVG
+    langsung dari file dan menggunakan CSS untuk styling.
+    """
+
+    @st.cache_data
+    def load_svg(filepath):
+        """Membuka file SVG dan mengembalikannya sebagai string XML."""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                svg = f.read()
+            return svg 
+        except FileNotFoundError:
+            st.error(f"Ikon tidak ditemukan di: {filepath}")
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="red" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'
+
+    # --- Path ke Ikon SVG di Folder Assets ---
+    path_buku_kas = "assets/buku_kas/bukukas.svg"
+    path_rekap_saldo = "assets/buku_kas/rekap_saldo.svg"
+    
+    # --- Injeksi CSS Baru ---
     st.markdown("""
         <style>
-            /* Import Google Fonts for a modern look */
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
-
-            /* Mengatur lebar container utama */
-            .main .block-container {
-                max-width: 900px; /* Lebar maksimum konten */
-                padding-top: 2rem;
-                padding-right: 1rem;
-                padding-left: 1rem;
-                padding-bottom: 2rem;
+            /* Latar belakang utama */
+            .main, [data-testid="stAppViewContainer"] {
+                background-color: #FFF7E8;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             }
-
-            /* Warna background yang lebih lembut dan elegan */
-            .stApp {
-                background-color: #FFF7E8; /* Warna krem terang */
-            }
-
-            /* Global font dan warna teks */
-            body, p, li, h1, h2, h3, h4, h5, h6, label, div[data-testid="stText"] {
-                font-family: 'Poppins', sans-serif;
-                color: #333333; /* Abu-abu gelap untuk teks utama */
-            }
-
-            /* Container dan Bordered Containers (cards, forms, expanders) */
-            .st-emotion-cache-1d8vwwt, [data-testid="stForm"], div[data-testid="stExpander"], .st-container[border="true"] {
-                background-color: #ffffff; /* Putih bersih */
-                border: 1px solid #e0e0e0; /* Border abu-abu terang */
-                border-radius: 12px;
-                padding: 1.5rem;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* Shadow lebih lembut */
-                transition: all 0.2s ease-in-out; /* Transisi untuk hover */
-            }
-            .st-emotion-cache-1d8vwwt:hover, .st-container[border="true"]:hover {
-                border-color: #007bff; /* Warna biru saat hover */
-                box-shadow: 0 6px 16px rgba(0,0,0,0.1); /* Shadow lebih tebal saat hover */
-                transform: translateY(-3px); /* Efek angkat sedikit */
-            }
-
-            /* Penyesuaian Warna Teks di Dalam Kotak */
-            .st-emotion-cache-1d8vwwt h3,
-            .st-emotion-cache-1d8vwwt h5,
-            [data-testid="stForm"] h6,
-            div[data-testid="stExpander"] summary,
-            [data-testid="stForm"] label,
-            .st-container[border="true"] div[data-testid="stText"],
-            [data-testid="stMetricLabel"] > div {
-                color: #495057 !important; /* Abu-abu gelap sedang */
-                font-weight: 600;
-            }
-
-            /* Judul Utama Modul (di luar kartu menu) */
-            h1 {
-                text-align: left;
-                color: #2c3e50; /* Biru kehitaman */
-                margin-bottom: 1.5rem;
-                font-size: 2.5rem;
-                font-weight: 700;
-            }
-            h2 {
-                color: #2c3e50;
-                font-size: 2rem;
-                border-bottom: 2px solid #e0e0e0;
-                padding-bottom: 0.5rem;
-                margin-bottom: 1.5rem;
-            }
-            h3 {
-                color: #34495e;
-                font-size: 1.6rem;
-                margin-bottom: 1rem;
-            }
-            h4 {
-                color: #555555;
-                font-size: 1.3rem;
-                margin-bottom: 0.8rem;
-            }
-            h5 {
-                color: #666666;
-                font-size: 1.1rem;
-                margin-bottom: 0.5rem;
-            }
-
-            /* Penyesuaian Warna Nilai Metrik SALDO AKHIR */
-            [data-testid="stMetric"] div[data-testid="stMetricValue"] {
-                color: #28a745 !important; /* Hijau cerah */
-                font-weight: bold !important;
-                font-size: 2.5rem !important;
-            }
-
-            /* Untuk Total Pemasukan dan Pengeluaran di ringkasan */
-            [data-testid="stMetric"]:nth-child(1) div[data-testid="stMetricValue"] {
-                color: #17a2b8 !important; /* Biru muda */
-                font-size: 2rem !important;
-            }
-            [data-testid="stMetric"]:nth-child(2) div[data-testid="stMetricValue"] {
-                color: #dc3545 !important; /* Merah */
-                font-size: 2rem !important;
-            }
-            [data-testid="stMetric"]:nth-child(3) div[data-testid="stMetricValue"] {
-                color: #28a745 !important; /* Hijau (saldo akhir) */
-                font-size: 2.5rem !important;
-            }
-
-            /* CSS untuk menengahkan dan memperbesar judul menu di cards */
-            /* Perubahan: target h3 di dalam .menu-card dengan font-size yang lebih kecil */
-            .menu-card h3 {
-                text-align: center !important;
-                font-size: 1.2rem !important; /* Ukuran font lebih kecil */
-                margin-top: 0.5rem; /* Tambahkan sedikit margin atas */
-                margin-bottom: 0.5rem;
-                padding-left: 0 !important;
-                color: #34495e !important;
-            }
-
-            /* Menghapus pseudo-element 'before' untuk h3 di menu */
-            .menu-card h3::before {
-                content: none !important;
-            }
-
-            /* CSS for the image in menu cards */
-            /* Perubahan: tambahkan margin-bottom agar ada jarak ke judul */
-            .menu-icon {
-                display: block;
-                margin: 0px auto; /* Hapus margin-top yang asli, ikon sudah di atas */
-                width: 50px; /* Ukuran ikon lebih besar */
-                height: 80px;
-                opacity: 0.8; /* Sedikit transparan */
-                transition: transform 0.2s ease-in-out;
-                margin-bottom: 10px; /* Jarak antara ikon dan judul */
-            }
-            .st-emotion-cache-1d8vwwt:hover .menu-icon {
-                transform: scale(1.1); /* Sedikit membesar saat hover */
-            }
-
-            /* Input fields (text, date, selectbox) */
-            [data-testid="stForm"] input,
-            [data-testid="stForm"] textarea,
-            [data-testid="stForm"] .stSelectbox > div,
-            .st-container[border="true"] .stSelectbox > div,
-            [data-testid="stDateInput"] input {
-                color: #333333 !important;
-                background-color: #f8f9fa !important; /* Latar belakang input lebih terang */
-                border: 1px solid #ced4da !important;
-                border-radius: 8px !important;
-                padding: 0.75rem 1rem !important;
-                box-shadow: inset 0 1px 2px rgba(0,0,0,0.03); /* Shadow dalam */
-            }
-            [data-testid="stForm"] input:focus,
-            [data-testid="stForm"] textarea:focus,
-            [data-testid="stForm"] .stSelectbox > div:focus-within,
-            .st-container[border="true"] .stSelectbox > div:focus-within,
-            [data-testid="stDateInput"] input:focus {
-                border-color: #007bff !important;
-                box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25) !important;
-            }
-
-            /* Buttons */
-            .stButton > button,
-            [data-testid="stDownloadButton"] > button,
-            [data-testid="stForm"] button {
-                background-color: #007bff !important; /* Biru utama */
-                color: white !important;
-                border: none !important;
-                border-radius: 8px !important;
-                font-weight: 600 !important;
-                padding: 0.75rem 1.25rem !important;
-                transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
-            }
-            .stButton > button:hover,
-            [data-testid="stDownloadButton"] > button:hover,
-            [data-testid="stForm"] button:hover {
-                background-color: #0056b3 !important; /* Biru lebih gelap saat hover */
-                transform: translateY(-1px); /* Efek angkat sedikit */
-            }
-            .stButton > button:active,
-            [data-testid="stDownloadButton"] > button:active,
-            [data-testid="stForm"] button:active {
-                transform: translateY(0); /* Kembali ke posisi semula saat diklik */
-            }
-
-            /* Tombol kembali ke menu (khusus untuk tombol yang spesifik) */
-            .st-emotion-cache-lgl08a.e1g8pov61 button,
-            .st-emotion-cache-pxri24 button { /* Streamlit's internal class for a button that fills a column */
-                background-color: #6c757d !important; /* Abu-abu untuk tombol sekunder */
-            }
-            .st-emotion-cache-lgl08a.e1g8pov61 button:hover,
-            .st-emotion-cache-pxri24 button:hover {
-                background-color: #5a6268 !important;
-            }
-
-            /* Penyesuaian Warna Tabel */
-            .st-emotion-cache-zq5wmm { /* Main table container */
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                overflow: hidden; /* Ensure rounded corners for table */
-                max-height: 500px; /* Batasi tinggi tabel */
-                overflow-y: auto; /* Tambahkan scroll vertikal */
-            }
-            table {
-                border-collapse: collapse;
-                width: 100%;
-            }
-            th {
-                background-color: #495057; /* Header abu-abu gelap */
-                color: #FFFFFF;
-                border: 1px solid #6c757d; /* Border antar header */
-                padding: 12px 15px;
-                text-align: left;
-                font-weight: 600;
-                position: sticky; /* Agar header tetap saat scroll */
-                top: 0;
-                z-index: 1; /* Pastikan header di atas konten */
-            }
-            td {
+            
+            /* Styling untuk kartu menu */
+            div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] > div[data-testid="stBorderedSticker"] {
                 background-color: #FFFFFF;
-                color: #333333;
-                border: 1px solid #e9ecef; /* Border antar sel lebih tipis */
-                padding: 10px 15px;
-            }
-            tr:nth-child(even) td {
-                background-color: #f8f9fa; /* Warna latar belakang sel genap */
-            }
-            
-            /* Warning/Info messages */
-            .stAlert {
-                border-radius: 8px;
-                padding: 1rem 1.5rem;
-                margin-top: 1rem;
-            }
-            .stAlert.warning {
-                background-color: #fff3cd;
-                color: #856404;
-                border-color: #ffeeba;
-            }
-            .stAlert.info {
-                background-color: #d1ecf1;
-                color: #0c5460;
-                border-color: #bee5eb;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                transition: all 0.3s ease-in-out;
+                display: flex; 
+                flex-direction: column; 
+                padding: 1.5rem;
+                max-width: 280px;
+                margin: auto;
             }
 
-            /* Spinner styling */
-            [data-testid="stSpinner"] .st-cd { /* Streamlit spinner message */
-                color: #007bff;
+            /* Efek hover pada kartu menu */
+            div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] > div[data-testid="stBorderedSticker"]:hover {
+                transform: translateY(-5px); 
+                box-shadow: 0 8px 16px rgba(0,0,0,0.12); 
+                border-color: #007BFF;
             }
             
-            /* Hide Streamlit header/footer default */
-            #MainMenu, footer { visibility: hidden; }
-            header { visibility: hidden; }
+            /* --- PERUBAHAN UTAMA DI SINI --- */
+            /* Konten di dalam kartu */
+            .menu-item-content { 
+                text-align: center; 
+                margin-bottom: 1.5rem; /* Beri jarak bawah agar tidak terlalu mepet dengan tombol */
+                /* flex-grow: 1; <-- Properti ini dihapus untuk menghilangkan ruang kosong */
+            }
 
+            /* Kontainer Ikon */
+            .menu-icon-container svg { width: 60px; height: 60px; } /* Ukuran ikon */
+            
+            /* Judul menu */
+            .menu-item-content h5 { font-size: 1.1rem; font-weight: 600; color: #343A40; margin-top: 0.5rem; }
+            
+            /* Tombol utama di dalam kartu */
+            .stButton > button {
+                background-color: #007BFF !important; color: white !important; font-weight: bold;
+                border-radius: 8px !important; border: none !important; width: 100% !important;
+                padding: 0.75rem 0 !important; font-size: 1rem !important;
+                margin-top: auto; /* Mendorong tombol ke bagian bawah jika ada ruang lebih */
+            }
+            .stButton > button:hover { background-color: #0056b3 !important; }
         </style>
         """, unsafe_allow_html=True)
-
+    
+    # --- Penanganan State Halaman ---
     if 'buku_kas_view' not in st.session_state:
         st.session_state.buku_kas_view = 'menu'
-    
     if 'show_report_data' not in st.session_state:
         st.session_state.show_report_data = False
-
-    # Buat kolom untuk judul dan tombol kembali
-    col_title, col_back_button = st.columns([0.7, 0.3])
-
+        
+    # --- HEADER: Judul dan Tombol Kembali ---
+    col_title, col_button = st.columns([3, 1])
     with col_title:
         st.title("📚 Modul Buku Kas")
-    
-    with col_back_button:
-        # Tampilkan tombol "Kembali ke Menu Buku Kas" jika tidak di menu utama buku kas
+    with col_button:
+        st.markdown('<div style="height: 2.5rem;"></div>', unsafe_allow_html=True)
         if st.session_state.buku_kas_view != 'menu':
-            # Untuk menyelaraskan tombol ke kanan secara flex
-            st.markdown("<div style='display: flex; justify-content: flex-end;'>", unsafe_allow_html=True)
-            if st.button("⬅️ Kembali ke Menu Buku Kas", type="secondary", key="back_to_buku_kas_menu"):
+            if st.button("⬅️ Kembali ke Menu", key="bukukas_back_to_menu", use_container_width=True):
                 st.session_state.buku_kas_view = 'menu'
+                st.session_state.show_report_data = False
                 if 'report_params' in st.session_state:
                     del st.session_state['report_params']
-                st.session_state.show_report_data = False
                 st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-        # Tampilkan tombol "Kembali ke Menu Utama Aplikasi" jika di menu utama buku kas
-        elif st.session_state.buku_kas_view == 'menu':
-            st.markdown("<div style='display: flex; justify-content: flex-end;'>", unsafe_allow_html=True)
-            if st.button("⬅️ Kembali ke Menu Utama Aplikasi", type="secondary", key="back_to_main_app_menu"):
+        else:
+            if st.button("⬅️ Menu Utama", key="bukukas_back_to_main", use_container_width=True):
                 st.session_state.page = 'home'
-                if 'page' in st.query_params:
-                    st.query_params.clear()
+                if 'page' in st.query_params: st.query_params.clear()
                 st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
 
+    st.markdown("---")
 
-    st.markdown("---") # Separator setelah judul/tombol kembali
-
+    # --- RENDER KONTEN: Menu atau Sub-halaman ---
     if st.session_state.buku_kas_view == 'menu':
-        st.markdown("### Pilih Laporan yang Ingin Anda Lihat")
-        
         menu_options = {
-            'buku_kas_umum': {
-                "label": "Buku Kas Umum",
-                "icon": buku_kas_svg_base64,
-            },
-            'rekap_saldo': {
-                "label": "Rekap Saldo per POS",
-                "icon": rekap_saldo_svg_base64,
-            }
+            'buku_kas_umum': {"label": "Buku Kas Umum", "path": path_buku_kas},
+            'rekap_saldo': {"label": "Rekap Saldo per POS", "path": path_rekap_saldo}
         }
+        
         items = list(menu_options.items())
-        cols = st.columns(len(items)) # Create columns dynamically based on number of menu items
-
+        cols = st.columns(len(items)) 
+        
         for i, (view, content) in enumerate(items):
             with cols[i]:
-                # Apply a custom class for styling individual menu cards
-                container = st.container(border=True)
-                container.markdown(f"""
-                    <div class='menu-card'>
-                        <img src='data:image/svg+xml;base64,{content['icon']}' class='menu-icon'>
-                        <h3>{content['label']}</h3>
-                        <p style='text-align: center; color: #777; font-size: 0.9em; margin-top: -10px; margin-bottom: 15px;'></p>
-                    </div>
-                """, unsafe_allow_html=True)
-                if container.button("Lihat Laporan", key=f"btn_bukukas_{view}", use_container_width=True, type="primary"):
-                    st.session_state.buku_kas_view = view
-                    st.session_state.show_report_data = False # Reset this flag when changing view
-                    st.rerun()
+                with st.container(border=True): # Tidak perlu mengatur tinggi, biarkan otomatis
+                    st.markdown(f"""
+                        <div class="menu-item-content">
+                            <div class="menu-icon-container">
+                                {load_svg(content['path'])}
+                            </div>
+                            <h5>{content['label']}</h5>
+                        </div>
+                        """, unsafe_allow_html=True)
 
-    elif st.session_state.buku_kas_view == 'buku_kas_umum':
-        show_buku_kas_umum()
-    elif st.session_state.buku_kas_view == 'rekap_saldo':
-        show_rekap_saldo()
+                    # Ganti teks tombol
+                    if st.button("Pilih Menu", key=f"btn_bukukas_{view}"):
+                        st.session_state.buku_kas_view = view
+                        st.rerun()
+    else:
+        view_function_map = {
+            'buku_kas_umum': show_buku_kas_umum,
+            'rekap_saldo': show_rekap_saldo
+        }
+        render_function = view_function_map.get(st.session_state.buku_kas_view)
+        if render_function:
+            render_function()

@@ -1224,8 +1224,12 @@ def receipt_css():
         @media print { .no-print { display: none !important; } .receipt-container { border: none; margin: 0; box-shadow: none; } }
     """
             
-# --- FUNGSI RENDER UTAMA MODUL (TELAH DIMODIFIKASI) ---
+# --- FUNGSI RENDER UTAMA MODUL (DENGAN GAYA BARU) ---
 def render():
+    """
+    Merender seluruh antarmuka untuk Modul Data Siswa dengan memuat ikon SVG
+    langsung dari file dan menggunakan CSS untuk styling.
+    """
     icon_kelas = load_svg("assets/modulsiswa/datakelas.svg")
     icon_siswa = load_svg("assets/modulsiswa/daftarsiswa.svg")
     icon_import = load_svg("assets/modulsiswa/importexcel.svg")
@@ -1235,109 +1239,83 @@ def render():
     icon_lulus = load_svg("assets/modulsiswa/kelulusan.svg")
     icon_kartu = load_svg("assets/modulsiswa/cetakkartu.svg")
     
-    # --- PERBAIKAN CSS ---
+    # --- CSS YANG DIPERBAIKI ---
     st.markdown("""
         <style>
             /* Latar belakang utama */
             .main, [data-testid="stAppViewContainer"] {
-            background-color: #FFF7E8;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            }
-            /* Menargetkan container luar dari setiap item menu */
-            div.st-emotion-cache-1r6slb0 {
-            background-color: #FFF7E8; /* Warna latar belakang kartu */
-            padding: 1rem 1.5rem;      /* Jarak dalam (atas/bawah, kanan/kiri) */
-            border-radius: 12px;        /* Sudut yang melengkung */
-            border: 1px solid #E0E0E0;  /* Garis tepi tipis */
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* Bayangan halus */
-            display: flex;              /* Menggunakan Flexbox untuk mensejajarkan item */
-            align-items: center;        /* Menjajarkan ikon dan teks secara vertikal di tengah */
-            gap: 1.5rem;                /* Jarak antara ikon dan teks */
-            height: 100%;               /* Memastikan tinggi kartu konsisten dalam satu baris */
-            }
-
-            /* Efek hover pada container */
-            div.st-emotion-cache-1r6slb0:hover {
-                border-color: #E0E0E0; !important;
-                transform: translateY(-3px);
-                box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+                background-color: #FFF7E8;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             }
             
-            /* Wrapper untuk konten (ikon dan label) */
-            .menu-item-content {
-                text-align: center;
-                flex-grow: 1; /* Memastikan konten mengisi ruang & mendorong tombol ke bawah */
+            /* Styling untuk kartu menu */
+            div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] > div[data-testid="stBorderedSticker"] {
+                background-color: #FFFFFF;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                transition: all 0.3s ease-in-out;
+                display: flex; 
+                flex-direction: column; 
+                padding: 1.5rem;
+                max-width: 280px;
+                margin: auto;
             }
 
-            /* Gaya Ikon SVG */
-            .menu-icon-container svg {
-                width: 48px;
-                height: 48px;
-                fill: white; /* Warna ikon putih */
-                margin-bottom: 10px;
-                transition: transform 0.2s ease-in-out;
+            /* Efek hover pada kartu menu */
+            div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] > div[data-testid="stBorderedSticker"]:hover {
+                transform: translateY(-5px); 
+                box-shadow: 0 8px 16px rgba(0,0,0,0.12); 
+                border-color: #007BFF;
+            }
+            
+            /* --- PERUBAHAN UTAMA DI SINI --- */
+            /* Konten di dalam kartu */
+            .menu-item-content { 
+                text-align: center; 
+                margin-bottom: 1.5rem; /* Beri jarak bawah agar tidak terlalu mepet dengan tombol */
+                /* flex-grow: 1; <-- Properti ini dihapus untuk menghilangkan ruang kosong */
             }
 
-            /* Efek hover pada Ikon */
-            div.st-emotion-cache-1r6slb0:hover .menu-icon-container svg {
-                transform: scale(1.1);
-                fill: #00A2FF; /* Warna ikon berubah saat hover */
-            }
-
-            /* Gaya Label Teks (h5) */
-            .menu-item-content h5 {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: #1a1a1a;
-            margin: 0.5rem 0;
-            text-align: center; /* Teks di tengah */
-            }
-
-            /* Tombol Menu */
+            /* Kontainer Ikon */
+            .menu-icon-container svg { width: 60px; height: 60px; } /* Ukuran ikon */
+            
+            /* Judul menu */
+            .menu-item-content h5 { font-size: 1.1rem; font-weight: 600; color: #343A40; margin-top: 0.5rem; }
+            
+            /* Tombol utama di dalam kartu */
             .stButton > button {
-            background-color: #007BFF !important; /* Warna latar biru */
-            color: white !important;               /* Warna teks putih */
-            font-weight: bold;
-            border-radius: 8px !important;
-            border: none !important;               /* Menghilangkan garis tepi */
-            width: 100% !important;                /* Lebar penuh */
-            padding: 0.75rem 0 !important;         /* Jarak dalam (padding) diperbesar */
-            font-size: 1rem !important;
+                background-color: #007BFF !important; color: white !important; font-weight: bold;
+                border-radius: 8px !important; border: none !important; width: 100% !important;
+                padding: 0.75rem 0 !important; font-size: 1rem !important;
+                margin-top: auto; /* Mendorong tombol ke bagian bawah jika ada ruang lebih */
             }
-            .stButton > button:hover {
-                background-color: #0056b3 !important;
-            }
-            /* --- DESAIN RESPONSIVE --- */
-            @media (max-width: 768px) {
-                .menu-title {
-                    font-size: 1rem;
-                }
-            }
+            .stButton > button:hover { background-color: #0056b3 !important; }
         </style>
         """, unsafe_allow_html=True)
     
     if 'data_siswa_view' not in st.session_state:
         st.session_state.data_siswa_view = 'menu'
 
-    _, back_col = st.columns([0.8, 0.2])
-    
-    with back_col:
+    # --- HEADER ---
+    col_title, col_button = st.columns([3, 1])
+    with col_title:
+        st.title("📊 Modul Data Siswa")
+    with col_button:
+        st.markdown('<div style="height: 2.5rem;"></div>', unsafe_allow_html=True)
         if st.session_state.data_siswa_view != 'menu':
-            if st.button("⬅️ Kembali ke Menu"):
+            if st.button("⬅️ Kembali ke Menu", key="datasiswa_back_to_menu", use_container_width=True):
                 st.session_state.data_siswa_view = 'menu'
                 st.rerun()
         else:
-            if st.button("⬅️ Menu Utama"):
+            if st.button("⬅️ Menu Utama", key="datasiswa_back_to_main", use_container_width=True):
                 st.session_state.page = 'home'
                 if 'page' in st.query_params:
                     st.query_params.clear()
                 st.rerun()
-                
-    st.title("📊 Modul Data Siswa")
+            
+    st.markdown("---")
         
     if st.session_state.data_siswa_view == 'menu':
-        st.markdown("---")
-        # --- MENU DIMODIFIKASI ---
         menu_options = {
             'master_kelas': {"label": "Data Kelas", "icon": icon_kelas},
             'daftar_siswa': {"label": "Daftar Siswa", "icon": icon_siswa},
@@ -1346,7 +1324,7 @@ def render():
             'pindah_kelas': {"label": "Pindah Kelas", "icon": icon_pindah},
             'tinggal_kelas': {"label": "Tinggal Kelas", "icon": icon_tinggal},
             'kelulusan': {"label": "Kelulusan", "icon": icon_lulus},
-            'cetak_bukti': {"label": "Cetak Bukti Bayar", "icon": icon_kartu} # Diubah dari Cetak Kartu
+            'cetak_bukti': {"label": "Cetak Bukti Bayar", "icon": icon_kartu}
         }
         
         items = list(menu_options.items())
@@ -1356,31 +1334,26 @@ def render():
             row_items = items[i:i+num_cols]
             for j, (view, content) in enumerate(row_items):
                 with cols[j]:
-                    # Kode untuk menampilkan kartu menu tidak berubah
-                    st.markdown(f"""
-                        <div class="menu-item-content">
-                            <div class="menu-icon-container">{content['icon']}</div>
-                            <h5>{content['label']}</h5>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if st.button("Pilih Menu", key=f"btn_{view}", use_container_width=True):
-                        st.session_state.data_siswa_view = view
-                        st.rerun()
+                    # --- PERUBAHAN UTAMA: Tambahkan kembali st.container ---
+                    with st.container(border=True, height=250):
+                        st.markdown(f"""
+                            <div class="menu-item-content">
+                                <div class="menu-icon-container">{content['icon']}</div>
+                                <h5>{content['label']}</h5>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if st.button("Pilih Menu", key=f"btn_{view}", use_container_width=True):
+                            st.session_state.data_siswa_view = view
+                            st.rerun()
 
     else:
-        # --- PEMETAAN FUNGSI DIMODIFIKASI ---
         view_function_map = {
             'master_kelas': show_master_kelas, 'daftar_siswa': show_daftar_siswa,
             'import_excel': show_import_excel, 'naik_kelas': show_naik_kelas,
             'pindah_kelas': show_pindah_kelas, 'tinggal_kelas': show_tinggal_kelas,
-            'kelulusan': show_kelulusan, 'cetak_bukti': show_cetak_bukti_pembayaran # Diarahkan ke fungsi baru
+            'kelulusan': show_kelulusan, 'cetak_bukti': show_cetak_bukti_pembayaran
         }
         render_function = view_function_map.get(st.session_state.data_siswa_view)
         if render_function:
             render_function()
-
-# Untuk menjalankan file ini secara mandiri
-if __name__ == "__main__":
-    db.setup_database()
-    render()
